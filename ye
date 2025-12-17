@@ -790,6 +790,3 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
 if __name__ == "__main__":
     get_webhook()
-
-if __name__ == "__main__":
-    get_webhook()
